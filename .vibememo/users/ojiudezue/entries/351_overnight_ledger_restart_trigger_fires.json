@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "351",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-24T08:18:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Overnight 11-24: crossing-ledger known-time fails F-K (~15%) and fires parked restore trigger (a); escalate as Tier 3 instead of building",
+  "summary": "The VISION-INTERIOR-SIGHTINGS-1 due follow-up measured the crossing ledger's 7-day known fraction by the plan's method 1: 5 anchors, 7 restarts (one unclean on 11-20 20:27 with no stop event), known 1,478-1,658 of 10,080 min (14.7-16.4%) vs the 0.25 gate. Restarts that hit a known ledger destroyed ~95% of the unknown time, above the 50% revival bar for parked option (a) (persist + guarded boot restore). Carded as CROSSING-LEDGER-RESTART-RESTORE-1 in waiting_operator. Same pass closed ANOMALY-FLOOD-ROWS-1 (0 implausible rows over 889 moves after the family returned) and found its named live proof surface, the Presence Diagnostics sensor, has never written since boot.",
+  "why": "Option (a) is Tier 3 on a hardened state machine (operator 11-17: only proven code supersedes correct code), so the overnight pass may not start it. The trigger is honest by its arithmetic but the precondition (c) was not kept: 4 of 7 restarts were at night, two days had two. So the ask offers A (build the restore) vs B (one strict morning-restart week, re-measure 12-01), recommending A because even one restart a day wipes a ledger that only re-anchors when the house is empty, which happens every few days. The frozen diagnostics sensor nearly turned a non-observation into a PASS; recording it as its own card stops the next validation from trusting it.",
+  "alternatives": [
+    {"option": "Build the ledger restore overnight", "rejected_because": "Tier 3 shared-primitive change; overnight contract forbids it."},
+    {"option": "Declare the anomaly-flood live check passed from the diagnostic counters (0 = nothing spared)", "rejected_because": "last_reported equals boot time; the counters cannot move. Disposed on anomaly_log rows plus recorder camera activity instead."}
+  ],
+  "refs": [
+    "docs/planning/kanban.data.yaml (VISION-INTERIOR-SIGHTINGS-1 due_check_2026_11_24_overnight_FK, CROSSING-LEDGER-RESTART-RESTORE-1, ANOMALY-FLOOD-ROWS-1 disposed_2026_11_24_overnight, PRESENCE-DIAG-SENSOR-FROZEN-1)",
+    "docs/planning/PLANNING_vision_interior_sightings.md 1b.0",
+    "commit 5d1570151"
+  ]
+}
