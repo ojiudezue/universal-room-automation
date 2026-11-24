@@ -53,3 +53,16 @@ Dropping the severity conjunct turns high_snapshot_no_route RED.
   for digest-preference recipients.
 - New LOW/MEDIUM perimeter alerts appear as `channel='digest'`, `delivered=0` rows, then as `delivered=2` after the
   next digest flush. Their audit rows show `digest_queued`.
+
+## Known limits (from reviews A and B, 2026-11-24, both SHIP)
+
+- The digest line is text only: digest rows do not store the snapshot, so the photo is lost for these alerts. Text in
+  the digest beats reaching nobody.
+- The fallback also covers a channel that was tried and failed (for example a WhatsApp send that errored writes a
+  `delivered=-1` row and nothing in `fired_for_person`), so that recipient gets the digest row too. `get_pending_digest`
+  reads only `delivered = 0`, so nothing is sent twice. No test pins this case.
+- Quiet hours: the DND skip (`notification_manager.py` ~2098-2130) runs before the fallback, so a sub-HIGH image alert
+  for a digest-preference recipient during quiet hours is still dropped. 0 occurrences in the last 14 days (every
+  overnight perimeter audit row was HIGH/CRITICAL); tracked on the card as a residual.
+- A caller-supplied route reason (for example `enriched_llmvision`) overwrites the image-forced label in the audit row,
+  so analytics cannot tell which `digest_queued` rows came from this fix (pre-existing).
