@@ -3832,6 +3832,16 @@ async def test_mf_wiimu_airplay_content_skipped(rig):
 
 
 @pytest.mark.asyncio
+async def test_mf_uppercase_airplay_content_skipped(rig):
+    """Review LOW: the MA twin also reports content "AIRPLAY" with source "Unknown"."""
+    rig.world.play("kitchen", content="AIRPLAY")
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A") == "source_not_transferable"
+    assert rig.mf._last_decision["reason"] == "content=airplay"
+    assert _side_effects(rig) == []
+
+
+@pytest.mark.asyncio
 async def test_mf_real_ma_queue_still_takes_ma_path(rig):
     """Regression: MA queue playing (app_id music_assistant, active_queue set)."""
     rig.world.play("kitchen")

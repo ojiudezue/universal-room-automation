@@ -4663,6 +4663,8 @@ MF_NON_TRANSFERABLE_CONTENT_PREFIXES: Final = (
     # MF-MA-PATH-NON-MA-SOURCE-1: AirPlay pushed from a phone. The MA twin of
     # a WiiM reads media_content_id "wiimu_airplay" (recorder 11-21/11-24).
     "wiimu_airplay",
+    # Same, upper-case form seen with source "Unknown" (matched lower-cased).
+    "airplay",
 )
 # Lower-cased exact values of the source player's ``source`` attribute.
 MF_NON_TRANSFERABLE_SOURCES: Final = frozenset({
