@@ -17452,10 +17452,10 @@ cards:
   disposition_2026_09_26_groom: 'RE-LANED (never built; wrongly in shipped_organic). Operator decision pending: APPROVE the scoped shape (perimeter-only, ''duke Nh'' syntax, 3 h cap) -> Tier 2 build.'
   title: Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed)
   thread: notifications
-  status: waiting_operator
+  status: "done"
   groom_2026_09_29: 'next normalised (was "CONFIRM ... APPROVE"). Rank scored (was default): value 4 (fatigue relief on perimeter pages, see PERIMETER-ALERT-VOLUME-FATIGUE-1), tc 3, effort 5 (Tier 2).'
   rank: {value: 4, time_criticality: 3, effort: 5}
-  updated: '2026-09-29 01:05'
+  updated: "2026-11-25 02:48"
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE — operator ask MOOT: ''duke Nh'' perimeter-only silence window shipped v5.75.2 (a8d8d9b0d) in the exact scoped shape (perimeter-only, Nh syntax, 3h cap, life-safety never blanketed). Moved off waiting_operator; only organic H1 (first real ''duke Nh'' reply) remains.'
   relane_2026_09_10: Not a soak -> WAITING_OPERATOR. You confirm the scoped shape (perimeter-only, 3h
     cap) -> Tier-2 (NM routing = regression-prone).
@@ -17477,10 +17477,11 @@ cards:
     (cap), duration operator-chosen per use.'
   safety_note: Blanket-mute is a stopgap while classification precision improves (the operator-stated
     underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
-  next: 'APPROVE: the scoped shape (perimeter-only, "duke Nh" syntax, 3 h cap). -> Tier 2 build (NM routing is regression-prone).'
+  next: "None - closed. To use it: reply 'duke 2h' (max 3 h) to a perimeter page."
   organic_evidence:
   - '2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed.
     Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.'
+  verified_2026_11_25_overnight: "ALREADY-DONE (the 09-12 sweep was right; the 09-26 re-lane 'never built' was WRONG). Code on develop: NM_SAFEWORD_WINDOW_ENABLED=True, NM_SAFEWORD_WINDOW_MAX_MIN=180 (3 h cap), _NM_SAFEWORD_WINDOW_RE '<word> <n>h|m' at notification_manager.py:324-339, pre-parse at :4494-4498, scope notes at :1780 (PLANNING_safeword_window.md), shipped v5.75.2. Fire check (URA DB): 0 safe_word_window rows ever; safe-word acks are plain (ack_safe_word:global:authorized_security 20, newest 11-23). So the window works in code but you have not used 'duke 2h' yet. Nothing to approve."
 - id: IMSG-IMAGE-FAIL-1
   title: iMessage security images NOT arriving (organic FAIL of NM-BB-IMAGE-1 L5) + [audit] sentinel leaking
     into operator-visible message bodies
@@ -35465,15 +35466,16 @@ cards:
   operator_2026_11_16_pick_a: "A (the first hour is per evening at home: once exterior-person pages have repeated for an hour while anyone is home, further perimeter pages still arrive but once each with no repeats, until the house goes away or 6 h pass with no perimeter page)"
   operator_2026_11_16_pick: "Paging - first hour if home. More if away"
   thread: notifications
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.108.31
   tier: 2
   created: '2026-11-16 01:30'
-  updated: '2026-11-16 01:30'
+  updated: "2026-11-25 02:47"
   origin: {date: '2026-11-16', gist: 'Operator: "BTW i thought there was a throttle on unacked pages from perimeter. Its just keeps going"'}
   operator_2026_11_16: "BTW i thought there was a throttle on unacked pages from perimeter. Its just keeps going"
   why: "Non-life-safety CRITICAL cadence (notification_manager.py:3140-3160, const.py:4676-4679): 300 s for the first hour, then 1800 s until 24 h, then daily; no repeat cap. The 18:00 CST page (created_at 2026-11-16T00:00:18Z) stayed unacked until 01:13 CST: ~12 + ~13 resends x 4 channels (pushover, companion, whatsapp, imessage). Resends are not logged per send in notification_log (only the ack row), so the count is inferred from the code."
-  next: "Me: build (Tier 2): non-life-safety CRITICAL repeats stop after the first hour (12 x 5 min) when the house is not away; away keeps the current 5 min / 30 min / daily schedule; life-safety unchanged; log every resend."
+  next: "None - closed; residual on NM-CAP-LEAVES-BURST-SIBLINGS-UNACKED-1."
+  organic_evidence_2026_11_25_overnight: "DISCRIMINATOR MET (URA DB notification_log, read 02:30 CST): page 11-24 05:14Z g5_bullet exterior_person CRITICAL repeated 12 x 5 min (05:19-06:09Z) and was capped at 06:14:14Z (route_reason repeat_capped_home, house home), exactly the operator's 'first hour if home'. Option A budget seen live: the recorder shows repeat_home_budget set at the cap and carried across the 11-25 05:26-05:30Z restart intact. The 11-25 07:56Z rear_ptz page started its own first hour (repeat 08:01Z) because the budget's last page was more than 6 h old, which is correct per A. Total repeat_capped_home rows: 12; repeat_skipped_home_budget: 1 (11-18). Residual carded: [[NM-CAP-LEAVES-BURST-SIBLINGS-UNACKED-1]] (same-burst sibling pages from other cameras stay unacked and a restart within 24 h recovers one)."
 - id: FOYER-FISHEYE-DEWARP-1
   title: "Dewarp the Foyer fisheye still before any interior vision read; the Foyer camera also sees the Living Room (cross-room overlap)"
   operator_2026_11_16_scope: "Ah ok then (accepting: foyer-floor zone + per-still dewarp now; full Frigate dewarp stream only for Foyer face recognition, revisited after Frigate 2 memory pressure is sorted)"
@@ -36749,6 +36751,7 @@ cards:
   links: {"related": ["ANOMALY-FLOOD-ROWS-1", "RECORDER-WRITE-RATE-ATTENUATION-1"], "context": "ANOMALY-FLOOD-ROWS-1 is where it was found (its counters live here); RECORDER-WRITE-RATE-ATTENUATION-1 owns recorder write volume, which this fix would add to."}
   rank: {"value": 3, "time_criticality": 2, "effort": 2}
   next: "PICK: A (recommended) I subscribe it to the presence refresh signal and you add the entity to the recorder exclude list (live attributes, no history cost; I add the ledger row to RUNBOOK_recorder_excludes.md); or B subscribe and keep it recorded; or C leave it and fix the docstring to say it is a boot snapshot -> I build A or B Tier 1 to review in the next pass."
+- {"id": "NM-CAP-LEAVES-BURST-SIBLINGS-UNACKED-1", "title": "When the home repeat cap stops a perimeter page, the other same-burst pages from other cameras stay unacknowledged and come back at the next restart", "thread": "notifications", "status": "waiting_operator", "tier": 2, "created": "2026-11-25 02:45", "updated": "2026-11-25 02:45", "refinement_status": "initial", "problem_solution": ["Problem: one person outside can produce several CRITICAL perimeter pages at once, one per camera. When the 'first hour only while home' cap stops the repeating page, it marks only that page's camera as handled. The others stay open in the database, and if HA restarts within 24 hours, startup recovery picks one up as a live alert. At home this just adds a stray 'Repeats stopped' digest line about a day-old alert. If the house is away at that restart, the stale page would re-page every 30 minutes. Solution: when the cap stops a page, also close every other open CRITICAL of the same kind from the same burst, the way a human ack already closes all of them."], "approval": "unreviewed", "tags": ["tier-2", "no-fabrication-verify", "mutation-drill"], "origin": {"date": "2026-11-25", "gist": "Found by the 11-25 overnight soak-exit check of NM-PERIMETER-REPEAT-STORM-1 (notification_log + recorder nm_persistence_state)."}, "evidence_2026_11_25_overnight": "URA DB notification_log: burst 11-24 05:13:59-05:14:05Z wrote CRITICAL exterior_person summary rows for 3 locations (rear_ptz_person_occupancy_2, rear_ptz_person_detected 'Detected' + 'Escalated', g5_bullet_person_detected). The slot page (g5_bullet) repeated 12 x 5 min and was capped 06:14:14Z (repeat_capped_home, correct). The rear_ptz_person_detected 'Escalated' row stayed acknowledged=0. HA restarted 11-25 04:38Z (23.4 h later, inside NM_RECOVERY_MAX_AGE_H=24.0, notification_manager.py:349); recovery (notification_manager.py:6473-6510) resumed it as REPEATING (recorder: sensor.ura_notification_manager_notification_diagnostics alert_state repeating 04:38:44Z); its first tick 05:13:21Z capped it (age > 1 h, house sleep) and wrote a 'Repeats stopped' MEDIUM digest row about a day-old alert, plus a home budget whose last_page_at is the 24 h-old created_at (inert: the 07:56Z page correctly got its own first hour). No resend went out. Mechanism in code: _cap_repeat_home acks 'this episode's rows only' via acknowledge_notification/matching by (coordinator, hazard, location) (notification_manager.py:3392-3470); the human ack path additionally runs NM-ACK-CLEARS-ALL (_ack_all_criticals_and_release, :3941-3943). The cap docstring says 'no bulk sweep' on purpose.", "links": {"parent": "NM-PERIMETER-REPEAT-STORM-1", "related": ["NM-RECOVERY-AGEBOUND-1"], "context": "Parent shipped the cap (discriminator met 11-24); NM-RECOVERY-AGEBOUND-1 is the 24 h boot-recovery bound this slips under."}, "parsimony": {"problem": "After a home cap, an unacked same-burst sibling CRITICAL is recovered as a live alert by a restart within 24 h.", "verdict": "SIMPLIFY"}, "rank": {"value": 3, "time_criticality": 2, "effort": 3}, "next": "PICK: A (recommended - small, mirrors the human ack) the home cap also acks every unacked CRITICAL row of the same coordinator + hazard created at or before the capped page, so nothing from the burst survives a restart; Tier 2 NM build to review with a burst-of-3-locations + restart test. Or B leave it (rare: needs a restart within 24 h of a capped multi-camera burst; at home the harm is one stray digest line). Default if no answer by the next attended session: A. -> I build it to review (not deploy)."}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

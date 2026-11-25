@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-25T02:00:46-06:00_ - _Data commit: `6068e6773f32`_ - _last_reconciled: 2026-11-24_
+_Generated: 2026-11-25T02:04:02-06:00_ - _Data commit: `11dec13b2e98`_ - _last_reconciled: 2026-11-24_
 
 
 ## Columns
@@ -17,9 +17,9 @@ _Generated: 2026-11-25T02:00:46-06:00_ - _Data commit: `6068e6773f32`_ - _last_r
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 39 |
 | ⏳ Waiting on me (Claude) | 2 |
-| 🚀 Shipped (organic open) | 14 |
+| 🚀 Shipped (organic open) | 13 |
 | 🅿️ Parked | 154 |
-| ✅ Done | 503 |
+| ✅ Done | 505 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -1302,7 +1302,20 @@ _created 2026-10-20 08:30 · updated 2026-11-25 02:28_
   - `verified_2026_11_16_overnight`: STILL-WAITING (~02:02 CST): switch.ura_nm_panel_channel off since the 11-15 21:46 boot; panel test not run. Ask stands.
   - `recheck_2026_11_25_overnight`: STILL-WAITING (ha_get_state 02:12 CST): switch.ura_nm_panel_channel off (last_changed = 11-24 23:28 restart). Panel test not run.
 
-### `WALLPANEL-BROWSER-MOD-POPUPS-1` - Wall panels: Browser Mod fixed IDs + view-independent pop-ups (doorbell/security/timer/laundry) instead of select-driven view reloads — _#29 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `NM-CAP-LEAVES-BURST-SIBLINGS-UNACKED-1` - When the home repeat cap stops a perimeter page, the other same-burst pages from other cameras stay unacknowledged and come back at the next restart — _#29 · WSJF 2.3 · v3 tc2 u2 /e3_
+thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-11-25 02:45 · initial_
+- **Problem / Solution:**
+  - Problem: one person outside can produce several CRITICAL perimeter pages at once, one per camera. When the 'first hour only while home' cap stops the repeating page, it marks only that page's camera as handled. The others stay open in th...
+- **Origin:** 2026-11-25 - Found by the 11-25 overnight soak-exit check of NM-PERIMETER-REPEAT-STORM-1 (notification_log + recorder nm_persistence_state).
+- **Next:** PICK: A (recommended - small, mirrors the human ack) the home cap also acks every unacked CRITICAL row of the same coordinator + hazard created at or before the capped page, so nothing from the burst survives a restart; Tier 2 NM build t...
+- **Tags:** tier-2, no-fabrication-verify, mutation-drill
+- **Parsimony:** [SIMPLIFY] After a home cap, an unacked same-burst sibling CRITICAL is recovered as a live alert by a restart within 24 h.
+- **Forensic keys (2):**
+  - `tier`: 2
+  - `evidence_2026_11_25_overnight`: URA DB notification_log: burst 11-24 05:13:59-05:14:05Z wrote CRITICAL exterior_person summary rows for 3 locations (rear_ptz_person_occupancy_2, rear_ptz_person_detected 'Detected' + 'Escalated', g5_bullet_person_detected). The slot pag...
+
+### `WALLPANEL-BROWSER-MOD-POPUPS-1` - Wall panels: Browser Mod fixed IDs + view-independent pop-ups (doorbell/security/timer/laundry) instead of select-driven view reloads — _#30 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboards** - status: **waiting_operator**
 _created 2026-11-02_
 - **Why:** KS select.<p>_panel_dashboard_view reloads the page (suspected renderer-spin trigger, WALL-HEAT-1) and can't overlay alerts. Verified 2026-11-02: browser_mod 3.4.1 installed; its JS loads in EVERY browser already (mod_view.py:35 add_extr...
@@ -1311,7 +1324,7 @@ _created 2026-11-02_
   - `tier`: 2
   - `review_2026_11_02`: Pushback: (1) use browser_mod.popup with inline card content, not Bubble #hash pop-ups on ura-v8 - hash pop-ups only open if the panel is on the view holding them, and they add cards to the dashboard phones use; (2) no unlock button on t...
 
-### `CENSUS-UNIDENTIFIED-SNAPSHOT-1` - Attach a camera snapshot to unidentified/guest census events so the operator can check who it was — _#30 · WSJF 2.0 · v4 tc2 u2 /e4_
+### `CENSUS-UNIDENTIFIED-SNAPSHOT-1` - Attach a camera snapshot to unidentified/guest census events so the operator can check who it was — _#31 · WSJF 2.0 · v4 tc2 u2 /e4_
 thread: **identity** - status: **waiting_operator**
 _created 2026-10-24 · updated 2026-10-25 02:08 · refined_
 - **Why:** Unidentified counts feed GUEST arming and security; a picture turns an opaque number into a one-glance check and gives face-retraining samples (FRIGATE-FACE-MISLABEL-OJI-1).
@@ -1321,7 +1334,7 @@ _created 2026-10-24 · updated 2026-10-25 02:08 · refined_
   - `tier`: 2
   - `sweep_2026_10_25_overnight`: ADJACENT, not duplicate. Swept board (snapshot/unidentified/guest), BACKLOG (guest false-arming item 3), planning docs (PLANNING_snap1_at_detection_snapshots.md, guest plans), IDENTITY_FUSION_CAMERAS_MANUAL. SNAP-1 (done) built at-detect...
 
-### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#31 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-ATTAIN-RATE-DUP-SAMPLE-1` - The battery charge-rate window can record the same reading twice in one tick, shortening its 15-minute window — _#32 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-11-12 14:13 · updated 2026-11-15 02:15 · initial_
 - **Problem / Solution:**
@@ -1333,7 +1346,7 @@ _created 2026-11-12 14:13 · updated 2026-11-15 02:15 · initial_
   - `verified_2026_11_15_overnight`: STILL-REAL (code read on develop): energy_battery.py:4189 (_classify_attain_rung, every tick) and :6049 (_run_attain_branch) both call _record_attain_sample (:5055), which appends (now, soc) with no same-timestamp check; the call-site co...
   - `tier`: 2-DB
 
-### `DASH-V8-VEHICLE-STATUS-CARD-1` - Add ngocjohn/vehicle-status-card for the CX-90 PHEV to the Now tab of the URA v8 dashboard — _#32 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `DASH-V8-VEHICLE-STATUS-CARD-1` - Add ngocjohn/vehicle-status-card for the CX-90 PHEV to the Now tab of the URA v8 dashboard — _#33 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboard** - status: **waiting_operator** - approval: **blocked**
 _created 2026-11-15 20:40 · updated 2026-11-21 02:10_
 - **Origin:** 2026-11-15 - Operator aside after the v5.108.28/29 go.
@@ -1344,7 +1357,7 @@ _created 2026-11-15 20:40 · updated 2026-11-21 02:10_
   - `facts_2026_11_15`: mazda_cs entry loaded (01M7H3M7KAAT61GFEEHMFVA518), device garage_a_2025_cx_90_phev_preferred: doors/trunk/lock, plugged_in, charging switch, charge_level, remaining_charging_time_ac, fuel %, ranges, tire pressures + warnings, climate, d...
   - `triage_2026_11_21_overnight`: Moved inbox -> waiting_operator: the only blocker is the install yes the card itself names (third-party frontend code = always-explicit). Not done overnight (HA write).
 
-### `PEOPLE-SCREEN-1` - People settings screen and per-person profile store (step 8 §10.1); configuration only, nothing acts yet — _#33 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PEOPLE-SCREEN-1` - People settings screen and per-person profile store (step 8 §10.1); configuration only, nothing acts yet — _#34 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **waiting_operator**
 _created 2026-11-15 20:10 · updated 2026-11-25 02:25_
 - **Origin:** 2026-11-15 - Operator: ship the People screen first. Split for the v5.108.29 deploy; parent keeps D2/D3/D4/D6/D7.
@@ -1358,22 +1371,6 @@ _created 2026-11-15 20:10 · updated 2026-11-25 02:25_
   - `tier`: 2
   - `verified_2026_11_23_overnight`: STILL-WAITING: no person_profiles key in any URA config entry data/options (core.config_entries 02:05 CST). DO stands.
   - `recheck_2026_11_25_overnight`: LEG 1 MET (ssh ha read of /config/.storage/core.config_entries, 02:10 CST): the Coordinator Manager entry now has options.person_profiles for 4 people (ezinne, jaya, oji_udezue, ziri; each auto_music/auto_scene false, one bedroom + one b...
-
-### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#34 · WSJF 1.8 · v4 tc3 u2 /e5_
-thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
-_updated 2026-09-29 01:05_
-- **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
-- **Why:** Operator ergonomics during the FP-tuning era: busy afternoons / alert clusters currently need per-alert acks.
-- **Next:** APPROVE: the scoped shape (perimeter-only, "duke Nh" syntax, 3 h cap). -> Tier 2 build (NM routing is regression-prone).
-- **Forensic keys (8):**
-  - `disposition_2026_09_26_groom`: RE-LANED (never built; wrongly in shipped_organic). Operator decision pending: APPROVE the scoped shape (perimeter-only, 'duke Nh' syntax, 3 h cap) -> Tier 2 build.
-  - `groom_2026_09_29`: next normalised (was "CONFIRM ... APPROVE"). Rank scored (was default): value 4 (fatigue relief on perimeter pages, see PERIMETER-ALERT-VOLUME-FATIGUE-1), tc 3, effort 5 (Tier 2).
-  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE — operator ask MOOT: 'duke Nh' perimeter-only silence window shipped v5.75.2 (a8d8d9b0d) in the exact scoped shape (perimeter-only, Nh syntax, 3h cap, life-safety...
-  - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You confirm the scoped shape (perimeter-only, 3h cap) -> Tier-2 (NM routing = regression-prone).
-  - `institutional_reuse`: The silence primitive EXISTS: _silence_until (notification_manager.py:346, gate :1351-1352) — the reply-3 30-min silence. Proposal = parametrize duration + scope. NOT a new mechanism.
-  - `marginal_shape`: Simplest honest version: "duke" keeps acking the current alert; "duke 2h" (parsed duration, cap 3h) sets _silence_until for PERIMETER-CLASS hazards only. Life-safety (smoke/CO/water/intrusion-interior) NEVER blanketed — a real intruder a...
-  - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
-  - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#35 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
@@ -1510,7 +1507,7 @@ _created 2026-10-20 08:30 · updated 2026-11-11 02:05_
   - `verify_2026_11_11_overnight`: CARD-WAS-WRONG + PARTIALLY-DONE. The card's 'APPROVE ESPHome filters + UDM templates + panel/device_time excludes' was stale: the 10-20 attended session already applied that batch as recorder excludes (RUNBOOK_recorder_excludes.md ledger...
   - `staged_2026_11_11_overnight`: Batch 2a staged, NOT applied: recorder exclude globs sensor.span_panel_*_produced_energy and _produced_energy_2 (~9k rows/hr, 92 entities, 84 never change; zero consumers in Energy prefs, all lovelace dashboards, automations.yaml, packag...
 
-## 🚀 Shipped (organic open) (14)
+## 🚀 Shipped (organic open) (13)
 _live, awaiting proof_
 
 ### `NM-DIGEST-MARK-RACE-1` - mark_digest_delivered marks every undelivered row, including rows queued while the digest was sending, so they never appear in any digest — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
@@ -1713,19 +1710,7 @@ _created 2026-11-15 23:40_
   - `tier`: 2
   - `discriminator_2026_11_15`: Done when the upguest ZV-style case (only sub-10 s blips for >=4 h) is excluded live with no BLE-placed person in the room, AND no room vacated on a BLE-placed person because of a P22 exclusion in the window.
 
-### `NM-PERIMETER-REPEAT-STORM-1` - An unacknowledged CRITICAL perimeter 'person detected' page repeats on all four channels every 30 min until 24 h (the 18:00 page ran ~7 h until the 01:13 safe-word ack) — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **notifications** - status: **shipped_organic**
-_created 2026-11-16 01:30_
-- **Origin:** 2026-11-16 - Operator: "BTW i thought there was a throttle on unacked pages from perimeter. Its just keeps going"
-- **Why:** Non-life-safety CRITICAL cadence (notification_manager.py:3140-3160, const.py:4676-4679): 300 s for the first hour, then 1800 s until 24 h, then daily; no repeat cap. The 18:00 CST page (created_at 2026-11-16T00:00:18Z) stayed unacked un...
-- **Next:** Me: build (Tier 2): non-life-safety CRITICAL repeats stop after the first hour (12 x 5 min) when the house is not away; away keeps the current 5 min / 30 min / daily schedule; life-safety unchanged; log every resend.
-- **Forensic keys (4):**
-  - `operator_2026_11_16_pick_a`: A (the first hour is per evening at home: once exterior-person pages have repeated for an hour while anyone is home, further perimeter pages still arrive but once each with no repeats, until the house goes away or 6 h pass with no perime...
-  - `operator_2026_11_16_pick`: Paging - first hour if home. More if away
-  - `tier`: 2
-  - `operator_2026_11_16`: BTW i thought there was a throttle on unacked pages from perimeter. Its just keeps going
-
-### `FOYER-FISHEYE-DEWARP-1` - Dewarp the Foyer fisheye still before any interior vision read; the Foyer camera also sees the Living Room (cross-room overlap) — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `FOYER-FISHEYE-DEWARP-1` - Dewarp the Foyer fisheye still before any interior vision read; the Foyer camera also sees the Living Room (cross-room overlap) — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **shipped_organic**
 _created 2026-11-16 01:50_
 - **Origin:** 2026-11-16 - Interior D0(g) pilot (AUDIT_vision_interior_d0g_pilot_2026_11_16.md): both Foyer frames graded wrong.
@@ -1738,7 +1723,7 @@ _created 2026-11-16 01:50_
   - `tier`: 2
   - `operator_2026_11_16`: 2 people in the foyer. Fisheye messing up the recogniction. We need a dewarp / foyer is empty but living room has 2 people
 
-### `ARRIVAL-ENGINE-S8-1` - Step 8 arrival engine: arrival music in your own room, welcome scene in your bedroom, departure pause (ships as option B) — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARRIVAL-ENGINE-S8-1` - Step 8 arrival engine: arrival music in your own room, welcome scene in your bedroom, departure pause (ships as option B) — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **shipped_organic**
 _created 2026-11-16 03:10_
 - **Origin:** 2026-11-16 - Split for the v5.108.31 deploy; parent keeps the live MA test, the final ownership rule and v6.0.0.
@@ -1748,7 +1733,7 @@ _created 2026-11-16 03:10_
   - `tier`: 3
   - `discriminator_2026_11_16`: Done when the first opted-in arrival logs outcome=started (or a named skip) then arrived/wait_* with zero stopped_then_arrived, a same-day GPS flap is skipped short_absence, and the first welcome scene logs scene_confirmed.
 
-### `LAYER-LEAK-CLEANUP-1` - Close the person-awareness layer's remaining leaks (34 groups after ship 3a/3b) in a few grouped cleanup cards, driving the guard's allowlist total down — _#14 · WSJF 1.3 · v4 tc2 u2 /e6_
+### `LAYER-LEAK-CLEANUP-1` - Close the person-awareness layer's remaining leaks (34 groups after ship 3a/3b) in a few grouped cleanup cards, driving the guard's allowlist total down — _#13 · WSJF 1.3 · v4 tc2 u2 /e6_
 status: **shipped_organic**
 _created 2026-11-14 16:45_
 - **Origin:** 2026-11-14 - Layer ship 3 Q10.
@@ -3938,8 +3923,38 @@ _created 2026-09-01 20:30 · initial_
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
-## ✅ Done (503)
+## ✅ Done (505)
 _closed, evidence in refs_
+
+### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _WSJF 1.8 · v4 tc3 u2 /e5_
+thread: **notifications** - status: **done** - approval: **operator_proposed**
+_updated 2026-11-25 02:48_
+- **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
+- **Why:** Operator ergonomics during the FP-tuning era: busy afternoons / alert clusters currently need per-alert acks.
+- **Next:** None - closed. To use it: reply 'duke 2h' (max 3 h) to a perimeter page.
+- **Forensic keys (9):**
+  - `disposition_2026_09_26_groom`: RE-LANED (never built; wrongly in shipped_organic). Operator decision pending: APPROVE the scoped shape (perimeter-only, 'duke Nh' syntax, 3 h cap) -> Tier 2 build.
+  - `groom_2026_09_29`: next normalised (was "CONFIRM ... APPROVE"). Rank scored (was default): value 4 (fatigue relief on perimeter pages, see PERIMETER-ALERT-VOLUME-FATIGUE-1), tc 3, effort 5 (Tier 2).
+  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE — operator ask MOOT: 'duke Nh' perimeter-only silence window shipped v5.75.2 (a8d8d9b0d) in the exact scoped shape (perimeter-only, Nh syntax, 3h cap, life-safety...
+  - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You confirm the scoped shape (perimeter-only, 3h cap) -> Tier-2 (NM routing = regression-prone).
+  - `institutional_reuse`: The silence primitive EXISTS: _silence_until (notification_manager.py:346, gate :1351-1352) — the reply-3 30-min silence. Proposal = parametrize duration + scope. NOT a new mechanism.
+  - `marginal_shape`: Simplest honest version: "duke" keeps acking the current alert; "duke 2h" (parsed duration, cap 3h) sets _silence_until for PERIMETER-CLASS hazards only. Life-safety (smoke/CO/water/intrusion-interior) NEVER blanketed — a real intruder a...
+  - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
+  - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
+  - `verified_2026_11_25_overnight`: ALREADY-DONE (the 09-12 sweep was right; the 09-26 re-lane 'never built' was WRONG). Code on develop: NM_SAFEWORD_WINDOW_ENABLED=True, NM_SAFEWORD_WINDOW_MAX_MIN=180 (3 h cap), _NM_SAFEWORD_WINDOW_RE '<word> <n>h|m' at notification_manag...
+
+### `NM-PERIMETER-REPEAT-STORM-1` - An unacknowledged CRITICAL perimeter 'person detected' page repeats on all four channels every 30 min until 24 h (the 18:00 page ran ~7 h until the 01:13 safe-word ack) — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **notifications** - status: **done**
+_created 2026-11-16 01:30 · updated 2026-11-25 02:47_
+- **Origin:** 2026-11-16 - Operator: "BTW i thought there was a throttle on unacked pages from perimeter. Its just keeps going"
+- **Why:** Non-life-safety CRITICAL cadence (notification_manager.py:3140-3160, const.py:4676-4679): 300 s for the first hour, then 1800 s until 24 h, then daily; no repeat cap. The 18:00 CST page (created_at 2026-11-16T00:00:18Z) stayed unacked un...
+- **Next:** None - closed; residual on NM-CAP-LEAVES-BURST-SIBLINGS-UNACKED-1.
+- **Forensic keys (5):**
+  - `operator_2026_11_16_pick_a`: A (the first hour is per evening at home: once exterior-person pages have repeated for an hour while anyone is home, further perimeter pages still arrive but once each with no repeats, until the house goes away or 6 h pass with no perime...
+  - `operator_2026_11_16_pick`: Paging - first hour if home. More if away
+  - `tier`: 2
+  - `operator_2026_11_16`: BTW i thought there was a throttle on unacked pages from perimeter. Its just keeps going
+  - `organic_evidence_2026_11_25_overnight`: DISCRIMINATOR MET (URA DB notification_log, read 02:30 CST): page 11-24 05:14Z g5_bullet exterior_person CRITICAL repeated 12 x 5 min (05:19-06:09Z) and was capped at 06:14:14Z (route_reason repeat_capped_home, house home), exactly the o...
 
 ### `TEST-MUSIC-SYSMODULES-LEAK-1` - test_music_following_coordinator.py replaces domain_coordinators/base in sys.modules at import and never restores them, breaking class-identity checks in later test files — _WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **quality** - status: **done**
