@@ -130,3 +130,6 @@ Trying to size URA's share inside Core, the Profiler's object-source scan double
 
 
 **2026-11-25 overnight, the repeat cap works and leaves one loose end.** The perimeter page cap held live: a page repeated for its first hour at home, then stopped. The same burst had paged from three cameras, and the cap closed only the one it was repeating, so a restart a day later brought the sibling back as a live alert. That changes a deliberate "no bulk sweep" choice, so it went to Oji as a pick. Music following's AirPlay moves, 34 failures and no successes, are being built as a named skip, with the speaker-join option held for an attended test. The arrival engine has never run because nobody is opted in, so it now asks Oji to switch it on rather than sitting in a soak → [355](users/ojiudezue/entries/355_overnight_1125_cap_residual_airplay_skip_optin.json).
+
+
+**2026-11-25, the Health Monitor gets its Core memory reading.** The monitor's Core memory field was always blank because HA only collects those stats while two disabled-by-default sensors are on. Oji asked for the 'no Supervisor calls' rule to be reconsidered only for good reason. Portability was that reason: the call never holds the loop, and enabling sensors would only fix this house. v2.4.1 is pushed, not installed → [355](users/ojiudezue/entries/355_hm_core_stats_direct_call_portability.json).
