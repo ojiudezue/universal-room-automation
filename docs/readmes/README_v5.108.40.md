@@ -95,3 +95,8 @@ state came back as `sleep` at 22:38:14.
 
 HA Core memory 3 minutes after boot: 2.85 GB (`ha core stats`), against 5.03 GB before the restart. Host available
 memory 3.4 GB, swap 2.4 of 3.9 GB used. This is the baseline for HA-CORE-MEMORY-GROWTH-1.
+
+**Unplanned second restart, not caused by this release.** At 22:41 CST the HA Profiler's object-source scan, run by me to
+attribute Core memory (card HA-CORE-MEMORY-GROWTH-1), stalled the loop for 31.5 s. It then grew Core to 7.9 GB, and the
+kernel OOM killer stopped Core. The Supervisor restarted it. Afterwards: 50/50 URA entries `loaded`, house state `sleep`
+at 22:43:44, Core 3.2 GB.
