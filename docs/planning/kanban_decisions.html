@@ -264,12 +264,12 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <header class="top">
 <h1>URA://DECISIONS<span class="gen">GENERATED - waiting_operator cards from kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-11-22T20:59:10-06:00</b></span>
-<span>data <b>d6d838f1ccb3</b></span>
-<span>reconciled <b>2026-11-22</b></span>
+<span>generated <b>2026-11-24T18:53:03-06:00</b></span>
+<span>data <b>4bc0fcbed91c</b></span>
+<span>reconciled <b>2026-11-24</b></span>
 </div></header>
 <section class="decisions" id="decisions" aria-labelledby="decisions-h">
-<h2 id="decisions-h">Decisions <span class="count">38</span><span class="hint">waiting on you, oldest first · tap a PICK or type an answer; it is applied at the next groom</span></h2>
+<h2 id="decisions-h">Decisions <span class="count">39</span><span class="hint">waiting on you, oldest first · tap a PICK or type an answer; it is applied at the next groom</span></h2>
 <article class="decision" data-id="CAMERA-SEAM-VALIDATION-1">
 <div class="dhd">
 <span class="id">CAMERA-SEAM-VALIDATION-1</span>
@@ -352,16 +352,6 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <div class="dtitle">The 10-03 census ground-truth fixture still carries truth the operator has since corrected</div>
 <p class="ask"><b>ANSWER</b> (plan OP-1, one reply): on 10-03, who left by car around 12:13 CDT and who left around 13:55 (trackers say Ezinne ~12:13, you + Jaya ~13:55; your earlier note said you + Jaya ~12:00), and roughly when did the long-stay guest come back? -&gt; I rewrite est_house_total for the 12:00-14:00 slots of quality/tests/fixtures/census_ground_truth_2026_10_03.csv from your answer, with a changelog note per slot, before the replay is re-run.</p>
 <form class="answer"><label for="ans-CENSUS-GROUND-TRUTH-CSV-FIX-1">Your answer for CENSUS-GROUND-TRUTH-CSV-FIX-1</label><textarea id="ans-CENSUS-GROUND-TRUTH-CSV-FIX-1" rows="2" placeholder="Your answer for CENSUS-GROUND-TRUTH-CSV-FIX-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
-<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
-</article>
-<article class="decision" data-id="CENSUS-PATIO-THROUGH-GLASS-1">
-<div class="dhd">
-<span class="id">CENSUS-PATIO-THROUGH-GLASS-1</span>
-<span class="since">waiting since 2026-10-09 02:12</span>
-</div>
-<div class="dtitle">The family-room camera counts people on the covered patio through the glass as being inside</div>
-<p class="ask"><b>DO</b> (config, no URA code): exclude the covered patio seen through the family-room glass in BOTH NVRs that feed the census - (1) Frigate2: add a motion mask or a required zone on camera family_room (feeds camera.family_room / binary_sensor.family_room_person_occupancy / sensor.family_room_person_count), (2) UniFi Protect: draw a detection zone on the family-room camera that leaves out the window area (feeds camera.family_room_high_resolution_channel / binary_sensor.family_room_person_detected). -&gt; I re-check the next gathering (or a staged walk on the patio) for indoor counts while only the patio is occupied.</p>
-<form class="answer"><label for="ans-CENSUS-PATIO-THROUGH-GLASS-1">Your answer for CENSUS-PATIO-THROUGH-GLASS-1</label><textarea id="ans-CENSUS-PATIO-THROUGH-GLASS-1" rows="2" placeholder="Your answer for CENSUS-PATIO-THROUGH-GLASS-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
 <article class="decision" data-id="NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1">
@@ -559,16 +549,6 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <form class="answer"><label for="ans-EC-ATTAIN-RATE-DUP-SAMPLE-1">Your answer for EC-ATTAIN-RATE-DUP-SAMPLE-1</label><textarea id="ans-EC-ATTAIN-RATE-DUP-SAMPLE-1" rows="2" placeholder="Your answer for EC-ATTAIN-RATE-DUP-SAMPLE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
-<article class="decision" data-id="WALLPANEL-URA-NOTIFY-1">
-<div class="dhd">
-<span class="id">WALLPANEL-URA-NOTIFY-1</span>
-<span class="since">waiting since 2026-11-16 02:04</span>
-</div>
-<div class="dtitle">URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface)</div>
-<p class="ask"><b>DO</b>: when convenient, turn on switch.ura_nm_panel_channel and run a test leak (plan steps 1-7) -&gt; I confirm only the targeted panels lit and that the ack released them, then close Halo S1b. APPROVE S2 (NM drives room alert lights) separately whenever you want it built.</p>
-<form class="answer"><label for="ans-WALLPANEL-URA-NOTIFY-1">Your answer for WALLPANEL-URA-NOTIFY-1</label><textarea id="ans-WALLPANEL-URA-NOTIFY-1" rows="2" placeholder="Your answer for WALLPANEL-URA-NOTIFY-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
-<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
-</article>
 <article class="decision" data-id="ROOM-CONFIG-LEGACY-MMWAVE-KEY-1">
 <div class="dhd">
 <span class="id">ROOM-CONFIG-LEGACY-MMWAVE-KEY-1</span>
@@ -603,16 +583,6 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <form class="answer"><label for="ans-DASH-V8-VEHICLE-STATUS-CARD-1">Your answer for DASH-V8-VEHICLE-STATUS-CARD-1</label><textarea id="ans-DASH-V8-VEHICLE-STATUS-CARD-1" rows="2" placeholder="Your answer for DASH-V8-VEHICLE-STATUS-CARD-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
-<article class="decision" data-id="ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1">
-<div class="dhd">
-<span class="id">ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1</span>
-<span class="since">waiting since 2026-11-22 02:02</span>
-</div>
-<div class="dtitle">The Claude AI Task account hit its API usage limit (locked until 2026-12-01), so every optimizer LLM call fails until then</div>
-<p class="ask"><b>DO</b>: in the Anthropic console, raise or reset the API spending limit for the key used by the Claude AI Task (or tell me to leave the optimizer LLM tier off until 12-01). PICK: A (recommended) leave the warning as is - the optimizer LLM tier is shadow and decides nothing; or B card a page-on-quota-error (Tier 1). -&gt; On your console change I confirm the next call succeeds in the system log and close this.</p>
-<form class="answer"><label for="ans-ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1">Your answer for ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1</label><textarea id="ans-ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1" rows="2" placeholder="Your answer for ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
-<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
-</article>
 <article class="decision" data-id="LANDSCAPE-RETRY-POSTFIX-CHECK-1">
 <div class="dhd">
 <span class="id">LANDSCAPE-RETRY-POSTFIX-CHECK-1</span>
@@ -623,31 +593,89 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <form class="answer"><label for="ans-LANDSCAPE-RETRY-POSTFIX-CHECK-1">Your answer for LANDSCAPE-RETRY-POSTFIX-CHECK-1</label><textarea id="ans-LANDSCAPE-RETRY-POSTFIX-CHECK-1" rows="2" placeholder="Your answer for LANDSCAPE-RETRY-POSTFIX-CHECK-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
+<article class="decision" data-id="ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1">
+<div class="dhd">
+<span class="id">ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1</span>
+<span class="since">waiting since 2026-11-23 02:15</span>
+</div>
+<div class="dtitle">The Claude AI Task account hit its API usage limit (locked until 2026-12-01), so every optimizer LLM call fails until then</div>
+<p class="ask"><b>DO</b>: in the Anthropic console, raise or reset the API spending limit for the key used by the Claude AI Task (or tell me to leave the optimizer LLM tier off until 12-01). PICK: A (recommended) leave the warning as is - the optimizer LLM tier is shadow and decides nothing; or B card a page-on-quota-error (Tier 1). -&gt; On your console change I confirm the next call succeeds in the system log and close this.</p>
+<form class="answer"><label for="ans-ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1">Your answer for ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1</label><textarea id="ans-ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1" rows="2" placeholder="Your answer for ANTHROPIC-API-USAGE-LIMIT-OC-LLM-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="CENSUS-PATIO-THROUGH-GLASS-1">
+<div class="dhd">
+<span class="id">CENSUS-PATIO-THROUGH-GLASS-1</span>
+<span class="since">waiting since 2026-11-24 02:08</span>
+</div>
+<div class="dtitle">The family-room camera counts people on the covered patio through the glass as being inside</div>
+<p class="ask"><b>DO</b> (config, no URA code): exclude the covered patio seen through the family-room glass in BOTH NVRs that feed the census - (1) Frigate2: add a motion mask or a required zone on camera family_room (feeds camera.family_room / binary_sensor.family_room_person_occupancy / sensor.family_room_person_count), (2) UniFi Protect: draw a detection zone on the family-room camera that leaves out the window area (feeds camera.family_room_high_resolution_channel / binary_sensor.family_room_person_detected). -&gt; I re-check the next gathering (or a staged walk on the patio) for indoor counts while only the patio is occupied.</p>
+<form class="answer"><label for="ans-CENSUS-PATIO-THROUGH-GLASS-1">Your answer for CENSUS-PATIO-THROUGH-GLASS-1</label><textarea id="ans-CENSUS-PATIO-THROUGH-GLASS-1" rows="2" placeholder="Your answer for CENSUS-PATIO-THROUGH-GLASS-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="CROSSING-LEDGER-RESTART-RESTORE-1">
+<div class="dhd">
+<span class="id">CROSSING-LEDGER-RESTART-RESTORE-1</span>
+<span class="since">waiting since 2026-11-24 02:08</span>
+</div>
+<div class="dtitle">Every Home Assistant restart wipes the crossing ledger&#x27;s known head count, and it only re-learns it when the house is next seen empty, so the ledger is known ~15% of the time</div>
+<p class="ask"><b>PICK</b>: A (recommended) approve option (a) as a Tier-3 cycle: I write the plan (persist + guarded boot restore, falsifiable invariant &quot;a restored ledger never differs from what an unbroken run would hold&quot;) for your plan review; or B first run one strict (c) week (at most one restart a day, mornings only) and re-measure F-K on 12-01 -&gt; on A I plan it in an attended session; on B I re-date the check.</p>
+<div class="picks">
+<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>(recommended) approve option (a) as a Tier-3 cycle: I write the pla...</button>
+<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>first run one strict (c) week (at most one restart a day, mornings...</button>
+</div>
+<form class="answer"><label for="ans-CROSSING-LEDGER-RESTART-RESTORE-1">Your answer for CROSSING-LEDGER-RESTART-RESTORE-1</label><textarea id="ans-CROSSING-LEDGER-RESTART-RESTORE-1" rows="2" placeholder="Your answer for CROSSING-LEDGER-RESTART-RESTORE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="PRESENCE-DIAG-SENSOR-FROZEN-1">
+<div class="dhd">
+<span class="id">PRESENCE-DIAG-SENSOR-FROZEN-1</span>
+<span class="since">waiting since 2026-11-24 02:08</span>
+</div>
+<div class="dtitle">The Presence Diagnostics sensor only writes once at boot, so its attributes (veto decision, zone verdicts, path-coverage counters) are hours or days stale</div>
+<p class="ask"><b>PICK</b>: A (recommended) I subscribe it to the presence refresh signal and you add the entity to the recorder exclude list (live attributes, no history cost; I add the ledger row to RUNBOOK_recorder_excludes.md); or B subscribe and keep it recorded; or C leave it and fix the docstring to say it is a boot snapshot -&gt; I build A or B Tier 1 to review in the next pass.</p>
+<div class="picks">
+<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>(recommended) I subscribe it to the presence refresh signal and you...</button>
+<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>subscribe and keep it recorded</button>
+<button type="button" data-pick="C" title="send: PICK C"><b>PICK C</b>leave it and fix the docstring to say it is a boot snapshot</button>
+</div>
+<form class="answer"><label for="ans-PRESENCE-DIAG-SENSOR-FROZEN-1">Your answer for PRESENCE-DIAG-SENSOR-FROZEN-1</label><textarea id="ans-PRESENCE-DIAG-SENSOR-FROZEN-1" rows="2" placeholder="Your answer for PRESENCE-DIAG-SENSOR-FROZEN-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="INTERIOR-PATH-ZERO-1120-1">
+<div class="dhd">
+<span class="id">INTERIOR-PATH-ZERO-1120-1</span>
+<span class="since">waiting since 2026-11-24 02:09</span>
+</div>
+<div class="dtitle">Entries seen by the doorbell_lite camera (Garage A door) never get an interior path, because the path map has no inward edge from it, so the &#x27;no path&#x27; alarm fires on days when only that camera sees entries</div>
+<p class="ask"><b>APPROVE</b> (recommended A): A) I add one inward edge {from: camera.doorbell_lite, to: camera.garage_a_2, kind: inward} to /config/universal_room_automation/interior_paths.json in an attended session (backup first; the map revalidates live within 30 s, no restart), then check the next doorbell_lite entry writes an interior_path row; or B) leave the map and stop counting doorbell_lite entries toward the alarm (code, Tier 1). VERIFY with A: a person entering at Garage A passes doorbell_lite (outside the lintel) and then camera.garage_a_2 - correct?</p>
+<form class="answer"><label for="ans-INTERIOR-PATH-ZERO-1120-1">Your answer for INTERIOR-PATH-ZERO-1120-1</label><textarea id="ans-INTERIOR-PATH-ZERO-1120-1" rows="2" placeholder="Your answer for INTERIOR-PATH-ZERO-1120-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
 <article class="decision" data-id="NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1">
 <div class="dhd">
 <span class="id">NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1</span>
-<span class="since">waiting since 2026-11-22 02:02</span>
+<span class="since">waiting since 2026-11-24 02:09</span>
 </div>
 <div class="dtitle">Prove the text &#x27;diag&#x27; menu answers on WhatsApp and the HA app (only iMessage is proven live)</div>
 <p class="ask"><b>DO</b>: text &#x27;diag&#x27; in your WhatsApp self-chat, and reply &#x27;diag&#x27; to any URA notification in the HA app -&gt; I read notification_inbound; a channel=whatsapp row and a companion row with a reply close this; no WhatsApp row means the bridge drops fromMe and I card that fix.</p>
 <form class="answer"><label for="ans-NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1">Your answer for NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1</label><textarea id="ans-NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1" rows="2" placeholder="Your answer for NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
-<article class="decision" data-id="PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1">
+<article class="decision" data-id="PEOPLE-SCREEN-1">
 <div class="dhd">
-<span class="id">PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1</span>
-<span class="since">waiting since 2026-11-22 02:02</span>
-<span class="due-chip" data-due="2026-11-22T10:00" data-label="2026-11-22 10:00" title="ship in the next attended batched release (one restart/day). 11-21 window passed without a release (HA still v5.108.38 at 11-22 02:01).">due 2026-11-22 10:00</span>
+<span class="id">PEOPLE-SCREEN-1</span>
+<span class="since">waiting since 2026-11-24 02:09</span>
 </div>
-<div class="dtitle">Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold</div>
-<p class="ask">Me: ship in the next batched release (~10:00), full suite first.</p>
-<form class="answer"><label for="ans-PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1">Your answer for PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1</label><textarea id="ans-PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1" rows="2" placeholder="Your answer for PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dtitle">People settings screen and per-person profile store (step 8 §10.1); configuration only, nothing acts yet</div>
+<p class="ask"><b>DO</b> (when convenient, 2 min): in URA -&gt; Coordinator Manager options -&gt; People, save one person profile, then clear one pick and save again -&gt; I read core.config_entries person_profiles to confirm both saved without an integration reload and close this.</p>
+<form class="answer"><label for="ans-PEOPLE-SCREEN-1">Your answer for PEOPLE-SCREEN-1</label><textarea id="ans-PEOPLE-SCREEN-1" rows="2" placeholder="Your answer for PEOPLE-SCREEN-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
 <article class="decision" data-id="PERIMETER-FP-GATES-DISPOSE-1">
 <div class="dhd">
 <span class="id">PERIMETER-FP-GATES-DISPOSE-1</span>
-<span class="since">waiting since 2026-11-22 02:02</span>
+<span class="since">waiting since 2026-11-24 02:09</span>
 </div>
 <div class="dtitle">Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date</div>
 <p class="ask"><b>DO</b>: in URA options -&gt; Perimeter, set perimeter_zone_sensors to the four Frigate property-zone person-occupancy sensors for g5_bullet, rear_ptz, utilities_ptz and front_side_ptz (ids in the audit, resolved by registry), and confirm Frigate&#x27;s &#x27;property&#x27; zone leaves the road out. PICK the D5 wait: A (recommended, your &#x27;alert latency over precision, waits ship at 0&#x27; rule) set PERIMETER_SS_SETTLE_S 8 -&gt; 0 so D5 judges on lookback only and never delays an alert; or B raise it to 12 s (covers ~p90 g5_bullet lag of 10.2 s, delays single-source alerts up to 12 s). -&gt; I make the A/B constant change (Tier 1, reviewed), then count perimeter_gate_decision rows; dispose each gate at its first 30 rows or 2026-11-28, whichever first (D3 with no rows by then parks).</p>
@@ -657,31 +685,21 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <article class="decision" data-id="SAFETY-SENSOR-FLEET-HEALTH-1">
 <div class="dhd">
 <span class="id">SAFETY-SENSOR-FLEET-HEALTH-1</span>
-<span class="since">waiting since 2026-11-22 02:02</span>
+<span class="since">waiting since 2026-11-24 02:09</span>
 </div>
 <div class="dtitle">The house&#x27;s only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards</div>
 <p class="ask"><b>DO</b> (when back, or the guest/Jaya if urgent): re-pair the kitchen Heiman smoke detector (homelab THREAD-INOVELLI-1 re-commission; it still sounds locally), and check the 4 leak pucks&#x27; batteries/pairing. APPROVE me to make the two config fixes in an attended session (move gas_zigbee_kitchen_gas out of Safety&#x27;s smoke list into gas; remove the ghost ziribathroom_water_leak_2). -&gt; Then I measure whether Safety should page on a life-safety sensor unavailable &gt; N hours (likely a small Tier-1/2 card).</p>
 <form class="answer"><label for="ans-SAFETY-SENSOR-FLEET-HEALTH-1">Your answer for SAFETY-SENSOR-FLEET-HEALTH-1</label><textarea id="ans-SAFETY-SENSOR-FLEET-HEALTH-1" rows="2" placeholder="Your answer for SAFETY-SENSOR-FLEET-HEALTH-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
-<article class="decision" data-id="PEOPLE-SCREEN-1">
+<article class="decision" data-id="WALLPANEL-URA-NOTIFY-1">
 <div class="dhd">
-<span class="id">PEOPLE-SCREEN-1</span>
-<span class="since">waiting since 2026-11-22 02:05</span>
+<span class="id">WALLPANEL-URA-NOTIFY-1</span>
+<span class="since">waiting since 2026-11-24 02:09</span>
 </div>
-<div class="dtitle">People settings screen and per-person profile store (step 8 §10.1); configuration only, nothing acts yet</div>
-<p class="ask"><b>DO</b> (when convenient, 2 min): in URA -&gt; Coordinator Manager options -&gt; People, save one person profile, then clear one pick and save again -&gt; I read core.config_entries person_profiles to confirm both saved without an integration reload and close this.</p>
-<form class="answer"><label for="ans-PEOPLE-SCREEN-1">Your answer for PEOPLE-SCREEN-1</label><textarea id="ans-PEOPLE-SCREEN-1" rows="2" placeholder="Your answer for PEOPLE-SCREEN-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
-<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
-</article>
-<article class="decision" data-id="INTERIOR-PATH-ZERO-1120-1">
-<div class="dhd">
-<span class="id">INTERIOR-PATH-ZERO-1120-1</span>
-<span class="since">waiting since 2026-11-22 02:08</span>
-</div>
-<div class="dtitle">Entries seen by the doorbell_lite camera (Garage A door) never get an interior path, because the path map has no inward edge from it, so the &#x27;no path&#x27; alarm fires on days when only that camera sees entries</div>
-<p class="ask"><b>APPROVE</b> (recommended A): A) I add one inward edge {from: camera.doorbell_lite, to: camera.garage_a_2, kind: inward} to /config/universal_room_automation/interior_paths.json in an attended session (backup first; the map revalidates live within 30 s, no restart), then check the next doorbell_lite entry writes an interior_path row; or B) leave the map and stop counting doorbell_lite entries toward the alarm (code, Tier 1). VERIFY with A: a person entering at Garage A passes doorbell_lite (outside the lintel) and then camera.garage_a_2 - correct?</p>
-<form class="answer"><label for="ans-INTERIOR-PATH-ZERO-1120-1">Your answer for INTERIOR-PATH-ZERO-1120-1</label><textarea id="ans-INTERIOR-PATH-ZERO-1120-1" rows="2" placeholder="Your answer for INTERIOR-PATH-ZERO-1120-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dtitle">URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface)</div>
+<p class="ask"><b>DO</b>: when convenient, turn on switch.ura_nm_panel_channel and run a test leak (plan steps 1-7) -&gt; I confirm only the targeted panels lit and that the ack released them, then close Halo S1b. APPROVE S2 (NM drives room alert lights) separately whenever you want it built.</p>
+<form class="answer"><label for="ans-WALLPANEL-URA-NOTIFY-1">Your answer for WALLPANEL-URA-NOTIFY-1</label><textarea id="ans-WALLPANEL-URA-NOTIFY-1" rows="2" placeholder="Your answer for WALLPANEL-URA-NOTIFY-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
 </section>

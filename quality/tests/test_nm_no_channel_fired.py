@@ -687,3 +687,119 @@ class TestDigestMarkHighWaterMark:
                 "UPDATE notification_log SET delivered=1 WHERE title=?",
                 (title,),
             )
+
+
+# ---------------------------------------------------------------------------
+# NM-SECURITY-IMAGE-SUBHIGH-NO-ROUTE-1: a sub-HIGH perimeter alert with a
+# snapshot is forced IMMEDIATE by the security-image rule; for a digest-pref
+# recipient with every gate >= HIGH nothing fires, so it must still fall
+# back to the digest row instead of reaching nobody.
+# ---------------------------------------------------------------------------
+
+
+async def _perimeter(nm, severity, n=0):
+    await nm.async_notify(
+        "security", severity, f"Person at front door {n}",
+        "Person detected outside", hazard_type="exterior_person",
+        location="front_door", snapshot_url="http://cam/snap.jpg",
+    )
+
+
+class TestSecurityImageSubHighFallback:
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("sev", [Severity.MEDIUM, Severity.LOW])
+    async def test_subhigh_snapshot_digest_pref_queues_digest_row(
+        self, real_schema_db, sev,
+    ):
+        """Live shape: digest pref + snapshot + MEDIUM/LOW -> exactly one
+        'digest' row and audit digest_queued (was no_channel_fired).
+        Drill: drop `or _image_forced_from_digest` -> RED."""
+        nm, db = _build(real_schema_db, _person())
+        await _perimeter(nm, sev)
+        pending = await db.get_pending_digest(PID)
+        assert [p["channel"] for p in pending] == ["digest"]
+        assert pending[0]["title"] == "Person at front door 0"
+        assert [a["bucket_outcome"] for a in _audit_rows(real_schema_db)] == [
+            "digest_queued"
+        ]
+        assert nm._send_companion.await_count == 0
+        assert nm._send_whatsapp.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_high_snapshot_sends_immediately_no_digest_row(
+        self, real_schema_db,
+    ):
+        """HIGH + snapshot still goes out on companion with the photo; no
+        digest row is queued (never double-deliver)."""
+        nm, db = _build(real_schema_db, _person())
+        await _perimeter(nm, Severity.HIGH)
+        assert nm._send_companion.await_count == 1
+        assert nm._send_companion.await_args.kwargs["snapshot_url"] == (
+            "http://cam/snap.jpg"
+        )
+        assert await db.get_pending_digest(PID) == []
+        assert [a["bucket_outcome"] for a in _audit_rows(real_schema_db)] == [
+            "accepted"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_subhigh_snapshot_channel_fired_no_digest_row(
+        self, real_schema_db,
+    ):
+        """Digest pref, MEDIUM + snapshot, whatsapp gate at MEDIUM -> the
+        forced-immediate send fires, so NO fallback row (conjunct
+        `not fired_for_person`). Drill: drop that conjunct -> RED."""
+        nm, db = _build(real_schema_db, _person(), whatsapp_sev="MEDIUM")
+        await _perimeter(nm, Severity.MEDIUM)
+        assert nm._send_whatsapp.await_count == 1
+        assert await db.get_pending_digest(PID) == []
+        assert [a["bucket_outcome"] for a in _audit_rows(real_schema_db)] == [
+            "accepted"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_immediate_pref_subhigh_snapshot_unchanged(
+        self, real_schema_db,
+    ):
+        """Own pref immediate -> pre-existing behaviour: no digest row,
+        honest no_channel_fired. Drill: drop the delivery_pref conjunct -> RED."""
+        nm, db = _build(real_schema_db, _person(pref=NM_DELIVERY_IMMEDIATE))
+        await _perimeter(nm, Severity.MEDIUM)
+        assert await db.get_pending_digest(PID) == []
+        assert [a["bucket_outcome"] for a in _audit_rows(real_schema_db)] == [
+            "no_channel_fired"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_all_digest_channels_muted_no_row(self, real_schema_db):
+        nm, db = _build(real_schema_db, _person())
+        for ch in ("whatsapp", "imessage"):
+            nm._person_channel_mutes[(PID, ch)] = (
+                _datetime.utcnow() + timedelta(minutes=30)
+            )
+        await _perimeter(nm, Severity.MEDIUM)
+        assert await db.get_pending_digest(PID) == []
+
+    @pytest.mark.asyncio
+    async def test_explicit_matrix_silence_respected(self, real_schema_db):
+        nm, db = _build(real_schema_db, _person(matrix=_ALL_FALSE_MEDIUM))
+        await _perimeter(nm, Severity.MEDIUM)
+        assert await db.get_pending_digest(PID) == []
+
+    @pytest.mark.asyncio
+    async def test_high_snapshot_no_route_keeps_preexisting_behaviour(
+        self, real_schema_db,
+    ):
+        """HIGH is forced IMMEDIATE by severity, not by the image rule, so a
+        digest-pref recipient with no companion service keeps the
+        pre-existing no_channel_fired (scope of this card is the image rule
+        only). Drill: drop the severity conjunct -> RED."""
+        person = _person()
+        person[CONF_NM_PERSON_COMPANION_SERVICE] = ""
+        nm, db = _build(real_schema_db, person)
+        await _perimeter(nm, Severity.HIGH)
+        assert await db.get_pending_digest(PID) == []
+        assert [a["bucket_outcome"] for a in _audit_rows(real_schema_db)] == [
+            "no_channel_fired"
+        ]

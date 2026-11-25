@@ -562,6 +562,11 @@ _ALLOWED_REMOVED_KEYS = _FORMS_REMOVED_KEYS | frozenset(
             "perimeter_alert_notify_service", "perimeter_alert_notify_target",
         ),
         "person_tracking": ("person_data_retention",),
+        # AI-ROOM-RULES-TRUST-REPAIR-1 screen picks: the rule writing model
+        # moved to its own CM step (room_rules_model); Check your rule became
+        # a menu (Save / Change the wording), so its form fields are gone.
+        "coordinator_optimization": ("room_rules_ai_task_entity",),
+        "room_rule_confirm": ("change_wording", "turn_on_room_rules"),
     }.items()
     for sub in ("data", "data_description")
     for field in fields

@@ -4041,7 +4041,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             menu.extend(_COORDINATOR_MENU_STEPS[cid])
         if added:
             menu.append("remove_coordinator")
-        menu.extend(["people", "signal_responses", "coordinator_optimization"])
+        menu.extend([
+            "people", "signal_responses", "coordinator_optimization",
+            "room_rules_model",
+        ])
         return menu
 
     async def async_step_add_coordinator(self, user_input=None):
@@ -10490,9 +10493,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         Both collapsed sections flatten back to top-level options on save
         so the chokepoint / LLM tier (which read `entry.options` fresh
         on every cycle) see the same flat key surface they do today.
-        The Room Rules model picker (``CONF_ROOM_RULES_AI_TASK_ENTITY``) also
-        lives in this form; the Pillar B confirm-guard key is operated via
-        entity buttons (not the form).
+        The Room Rules model picker (``CONF_ROOM_RULES_AI_TASK_ENTITY``) has
+        its own step (``room_rules_model``); the Pillar B confirm-guard key
+        is operated via entity buttons (not the form).
         """
         from homeassistant.data_entry_flow import section
         from .const import (
@@ -10508,8 +10511,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
             CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
             CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
-            CONF_ROOM_RULES_AI_TASK_ENTITY,
-            DEFAULT_ROOM_RULES_AI_TASK_ENTITY,
             DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
             DEFAULT_OPTIMIZER_KILL_SWITCH,
             DEFAULT_OPTIMIZER_CONFIDENCE_GATE,
@@ -10674,21 +10675,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.TextSelector(
                 selector.TextSelectorConfig(multiline=True)
             ),
-            # AI-ROOM-RULES-TRUST-REPAIR-1 §8: "Rule writing model" (rung 2).
-            # Empty = HA's default AI Task entity. Saved rules never call it.
-            vol.Optional(
-                CONF_ROOM_RULES_AI_TASK_ENTITY,
-                default=self._get_current(
-                    CONF_ROOM_RULES_AI_TASK_ENTITY,
-                    DEFAULT_ROOM_RULES_AI_TASK_ENTITY,
-                ),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[""] + self._discover_ai_task_entities(),
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                    custom_value=True,
-                )
-            ),
             vol.Optional(
                 CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
                 default=self._get_current(
@@ -10735,6 +10721,43 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             step_id="coordinator_optimization",
             data_schema=data_schema,
         )
+
+    async def async_step_room_rules_model(self, user_input=None):
+        """Coordinator Manager: "Rule writing model" on its own step
+        (AI-ROOM-RULES-TRUST-REPAIR-1 screen pick 2, option B).
+
+        Same stored key as before (``CONF_ROOM_RULES_AI_TASK_ENTITY``, rung
+        2); it moved out of the Optimizer form, no migration. Empty = HA's
+        default AI Task entity. Saved rules never call it."""
+        from .const import (  # noqa: PLC0415
+            CONF_ROOM_RULES_AI_TASK_ENTITY,
+            DEFAULT_ROOM_RULES_AI_TASK_ENTITY,
+        )
+        if user_input is not None:
+            value = str(user_input.get(CONF_ROOM_RULES_AI_TASK_ENTITY, "") or "").strip()
+            return self.async_create_entry(
+                title="",
+                data={
+                    **self._config_entry.options,
+                    CONF_ROOM_RULES_AI_TASK_ENTITY: value,
+                },
+            )
+        schema = vol.Schema({
+            vol.Optional(
+                CONF_ROOM_RULES_AI_TASK_ENTITY,
+                default=self._get_current(
+                    CONF_ROOM_RULES_AI_TASK_ENTITY,
+                    DEFAULT_ROOM_RULES_AI_TASK_ENTITY,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[""] + self._discover_ai_task_entities(),
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    custom_value=True,
+                )
+            ),
+        })
+        return self.async_show_form(step_id="room_rules_model", data_schema=schema)
 
     # =========================================================================
     # v5.21.0 fix-up (operator scope change 2026-07-17): the standalone
@@ -15255,47 +15278,64 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_room_rule_confirm(self, user_input=None):
-        """Check your rule: the code-written preview, then Save or Change.
+        """Check your rule: the code-written preview, then a plain menu.
 
-        When the room's Room Rules switch is off, a "Turn on room rules in
-        this room" box (default on) is shown; saving with it ticked turns
-        the switch on (D3, MEDIUM-5)."""
+        Menu choices (screen pick 3, option B): "Save" and "Change the
+        wording" are separate menu entries, never one combined form. When
+        the room's Room Rules switch is off, "Save and turn on room rules"
+        is offered first (the old default-on box, D3 / MEDIUM-5); plain
+        "Save" then keeps the switch off."""
         pending = getattr(self, "_rule_pending", None)
         if not pending:
             return await self.async_step_room_rules()
         switch_off = self._room_rules_switch_off()
-        if user_input is not None:
-            if user_input.get("change_wording"):
-                self._rule_pending = None
-                if pending.get("source") == "described":
-                    return await self.async_step_room_rule_describe()
-                return await self.async_step_room_rule_automation()
-            records = [r for r in self._room_rule_records() if r.get("rule_id") != pending["rule_id"]]
-            # Keep the list order: replace in place when editing.
-            existing_ids = [r.get("rule_id") for r in self._room_rule_records()]
-            if pending["rule_id"] in existing_ids:
-                idx = existing_ids.index(pending["rule_id"])
-                records.insert(min(idx, len(records)), pending)
-            else:
-                records.append(pending)
-            self._rule_pending = None
-            self._rule_draft = None
-            return await self._save_room_rules(
-                records,
-                turn_on_switch=switch_off and bool(user_input.get("turn_on_room_rules", True)),
-            )
-        fields: dict = {}
+        options = ["room_rule_save", "room_rule_change_wording"]
         if switch_off:
-            fields[vol.Optional("turn_on_room_rules", default=True)] = selector.BooleanSelector()
-        fields[vol.Optional("change_wording", default=False)] = selector.BooleanSelector()
-        return self.async_show_form(
+            options = ["room_rule_save_turn_on", *options]
+        return self.async_show_menu(
             step_id="room_rule_confirm",
-            data_schema=vol.Schema(fields),
+            menu_options=options,
             description_placeholders={
                 "preview": self._room_rule_preview(pending),
-                "switch_note": "Room rules are off in this room." if switch_off else "",
+                "switch_note": (
+                    "Room rules are off in this room." if switch_off else ""
+                ),
             },
         )
+
+    async def _commit_pending_rule(self, *, turn_on_switch: bool):
+        pending = getattr(self, "_rule_pending", None)
+        if not pending:
+            return await self.async_step_room_rules()
+        records = [r for r in self._room_rule_records() if r.get("rule_id") != pending["rule_id"]]
+        # Keep the list order: replace in place when editing.
+        existing_ids = [r.get("rule_id") for r in self._room_rule_records()]
+        if pending["rule_id"] in existing_ids:
+            idx = existing_ids.index(pending["rule_id"])
+            records.insert(min(idx, len(records)), pending)
+        else:
+            records.append(pending)
+        self._rule_pending = None
+        self._rule_draft = None
+        return await self._save_room_rules(records, turn_on_switch=turn_on_switch)
+
+    async def async_step_room_rule_save(self, user_input=None):
+        """Save: write the rule; the Room Rules switch is left as it is."""
+        return await self._commit_pending_rule(turn_on_switch=False)
+
+    async def async_step_room_rule_save_turn_on(self, user_input=None):
+        """Save and turn on room rules in this room (offered only when off)."""
+        return await self._commit_pending_rule(
+            turn_on_switch=self._room_rules_switch_off(),
+        )
+
+    async def async_step_room_rule_change_wording(self, user_input=None):
+        """Back to the step the rule came from, without saving."""
+        pending = getattr(self, "_rule_pending", None)
+        self._rule_pending = None
+        if pending is None or pending.get("source") == "described":
+            return await self.async_step_room_rule_describe()
+        return await self.async_step_room_rule_automation()
 
     def _rule_status_words(self, rec: dict) -> str:
         from .rule_compiler import rule_status  # noqa: PLC0415

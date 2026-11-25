@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "350",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-23T08:40:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Overnight 11-23: perimeter false-alert arc not met on volume; park the parent behind the existing operator ask instead of re-asking",
+  "summary": "Soak-exit measurement of PERIMETER-FP-STREET-NOISE-1 (arc measurement 5): perimeter person pushes were 69/day before the 11-08 gate work, 44/day for 11-08..11-15, and 60/day over 11-16..11-22, about 98% still CRITICAL/HIGH. The zone-agreement ('Lower Road Alerts') gate has fired 0 times in 866 perimeter_gate_decision episodes since 11-14 because perimeter_zone_sensors was never set. The remaining levers (zone sensors, D5 settle pick, Protect exclusion zones) are all operator-owned and already queued on PERIMETER-FP-GATES-DISPOSE-1.",
+  "why": "The arc's success test is fewer pushes, and the shipped gates barely touched volume. Volume is not the FP rate (no snapshot classification), but the gap is clear enough to call NOT MET. Opening a new ask would repeat one the operator already holds (feedback: don't repeat acknowledged asks), so the parent and the zero-fire zone-agreement card were parked with blocked_by links to the single ask, and that ask now carries the measured evidence that it is the lever. Same pass closed three cards on live evidence (lock page names last-seen time; chatter mode now acts: 0 'shadow' titles since 11-16 vs ~13/day before; perimeter switch renames already live since v5.108.22) and found the Claude AI Task locked by an Anthropic usage limit until 12-01, which will fail today's room-rule end-to-end test for a reason unrelated to the rules code.",
+  "alternatives": [
+    {
+      "option": "Keep the arc parent in shipped_organic and watch another week",
+      "rejected_because": "Soak exit rule: dispose, don't watch; the discriminator was evaluable tonight and failed."
+    },
+    {
+      "option": "Page the operator with a new perimeter ask",
+      "rejected_because": "The ask exists (PERIMETER-FP-GATES-DISPOSE-1); re-asking adds noise without a new decision."
+    }
+  ],
+  "refs": [
+    "docs/planning/kanban.data.yaml (PERIMETER-FP-STREET-NOISE-1 disposition_2026_11_23, PERIMETER-ZONE-AGREEMENT-FIX-OR-REMOVE-1 fire_check_2026_11_23)",
+    "commits 0967c84c0, a443203b9"
+  ]
+}

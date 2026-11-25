@@ -88,6 +88,26 @@ _mods = {
     },
 }
 
+# TEST-MUSIC-SYSMODULES-LEAK-1: every sys.modules key this file's import-time
+# surgery touches is snapshotted here and restored right after the imports below,
+# so later test files see the real package (class identity, isinstance checks).
+_ABSENT = object()
+_URA_PKG = "custom_components.universal_room_automation"
+_DC_PKG = _URA_PKG + ".domain_coordinators"
+_DC_SUBMODS = ("signals", "house_state", "base", "manager", "music_following")
+
+
+def _touched_keys():
+    keys = list(_mods) + ["aiosqlite", "custom_components", _URA_PKG,
+                          _URA_PKG + ".const", _DC_PKG]
+    keys += [f"{_DC_PKG}.{n}" for n in _DC_SUBMODS]
+    return keys
+
+
+_SYSMODULES_SNAPSHOT = {k: sys.modules.get(k, _ABSENT) for k in _touched_keys()}
+_CC_ATTR_SNAPSHOT = getattr(sys.modules.get("custom_components"), "universal_room_automation", _ABSENT)
+_SYSPATH_SNAPSHOT = list(sys.path)
+
 for name, attrs in _mods.items():
     if isinstance(attrs, dict):
         sys.modules.setdefault(name, _mock_module(name, **attrs))
@@ -108,6 +128,9 @@ _ura = types.ModuleType("custom_components.universal_room_automation")
 _ura_path = os.path.join(_cc.__path__[0], "universal_room_automation")
 _ura.__path__ = [_ura_path]
 _ura.__package__ = "custom_components.universal_room_automation"
+# Identity marker: the no-leak guard (test_music_following_sysmodules_no_leak.py)
+# asserts no sys.modules value carries it after this file's imports.
+_ura.__ura_music_private_copy__ = True
 sys.modules["custom_components.universal_room_automation"] = _ura
 
 # Import const.py directly (it has no HA dependencies beyond typing)
@@ -116,6 +139,7 @@ _const_spec = importlib.util.spec_from_file_location(
     os.path.join(_ura_path, "const.py"),
 )
 _const_mod = importlib.util.module_from_spec(_const_spec)
+_const_mod.__ura_music_private_copy__ = True
 sys.modules["custom_components.universal_room_automation.const"] = _const_mod
 _const_spec.loader.exec_module(_const_mod)
 _ura.const = _const_mod
@@ -125,6 +149,7 @@ _dc_path = os.path.join(_ura_path, "domain_coordinators")
 _dc = types.ModuleType("custom_components.universal_room_automation.domain_coordinators")
 _dc.__path__ = [_dc_path]
 _dc.__package__ = "custom_components.universal_room_automation.domain_coordinators"
+_dc.__ura_music_private_copy__ = True
 sys.modules["custom_components.universal_room_automation.domain_coordinators"] = _dc
 _ura.domain_coordinators = _dc
 
@@ -135,6 +160,7 @@ for _submod_name in ("signals", "house_state", "base", "manager", "music_followi
         _full_name, os.path.join(_dc_path, f"{_submod_name}.py"),
     )
     _mod = importlib.util.module_from_spec(_spec)
+    _mod.__ura_music_private_copy__ = True
     sys.modules[_full_name] = _mod
     _spec.loader.exec_module(_mod)
     setattr(_dc, _submod_name, _mod)
@@ -166,6 +192,39 @@ from custom_components.universal_room_automation.const import (
     DEFAULT_MF_MIN_CONFIDENCE,
     COORDINATOR_ENABLED_KEYS,
 )
+
+
+def _restore_sysmodules(snapshot, cc_attr):
+    for key, val in snapshot.items():
+        if val is _ABSENT:
+            sys.modules.pop(key, None)
+        else:
+            sys.modules[key] = val
+    cc = sys.modules.get("custom_components")
+    if cc is not None:
+        if cc_attr is _ABSENT:
+            if hasattr(cc, "universal_room_automation"):
+                delattr(cc, "universal_room_automation")
+        else:
+            cc.universal_room_automation = cc_attr
+
+
+# The stubbed module objects this file was built against (for runtime re-install).
+_STUB_MODULES = {k: sys.modules[k] for k in _touched_keys() if k in sys.modules}
+_restore_sysmodules(_SYSMODULES_SNAPSHOT, _CC_ATTR_SNAPSHOT)
+sys.path[:] = _SYSPATH_SNAPSHOT
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _music_stub_modules():
+    """Re-install this file's stubs only while its tests run, then restore."""
+    before = {k: sys.modules.get(k, _ABSENT) for k in _STUB_MODULES}
+    cc_before = getattr(sys.modules.get("custom_components"), "universal_room_automation", _ABSENT)
+    sys.modules.update(_STUB_MODULES)
+    try:
+        yield
+    finally:
+        _restore_sysmodules(before, cc_before)
 
 
 # ============================================================================

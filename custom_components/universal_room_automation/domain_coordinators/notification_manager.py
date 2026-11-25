@@ -2288,8 +2288,23 @@ class NotificationManager:
                 person_cfg.get(CONF_NM_PERSON_DIGEST_CHANNELS)
                 or sorted(NM_CHANNELS_KNOWN)
             )
+            # NM-SECURITY-IMAGE-SUBHIGH-NO-ROUTE-1: a digest-pref recipient
+            # whose sub-HIGH alert was forced IMMEDIATE only by the
+            # security-image rule (above) has effective_pref IMMEDIATE, so the
+            # clause below never matched and, with every channel gated at
+            # HIGH+, the alert reached nobody. Fall back to the digest row too
+            # when NOTHING fired for this recipient (fired_for_person empty).
+            _image_forced_from_digest = (
+                delivery_pref == NM_DELIVERY_DIGEST
+                and _force_immediate_for_security_image
+                and severity not in (Severity.CRITICAL, Severity.HIGH)
+                and not fired_for_person
+            )
             if (
-                effective_pref == NM_DELIVERY_DIGEST
+                (
+                    effective_pref == NM_DELIVERY_DIGEST
+                    or _image_forced_from_digest
+                )
                 and not _digest_queued
                 and database
                 and _matrix_branch == "legacy_fallback"
