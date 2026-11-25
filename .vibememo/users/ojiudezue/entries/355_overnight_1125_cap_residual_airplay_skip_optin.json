@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "355",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-25T08:12:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Overnight 11-25: repeat cap proven live, its burst-sibling gap escalated not built; AirPlay music moves become a named skip; arrival engine waits on opt-in, not parked",
+  "summary": "The soak-exit sweep closed NM-PERIMETER-REPEAT-STORM-1 on live rows: the 11-23 23:14 page repeated 12 x 5 min and was capped at one hour at home. The same rows showed a residual: that burst wrote CRITICAL pages for three camera locations, the cap acked only the slot's location, and the sibling 'Escalated' row was revived by the 11-24 22:36 restart 23.4 h later, just under the 24 h recovery bound. It was carded as NM-CAP-LEAVES-BURST-SIBLINGS-UNACKED-1 (PICK A: the cap acks same-hazard siblings). The top planned card MF-MA-PATH-NON-MA-SOURCE-1 (34 failed Music Assistant moves since 11-21, 0 successes) went to an isolated builder as the simplest correct fix: AirPlay on the source is a named source_not_transferable skip. The arrival engine (ARRIVAL-ENGINE-S8-1) has written zero records because all four saved profiles have auto music/scene off, so it moved to waiting_operator with a DO rather than parked. SAFEWORD-WINDOW-1 was found already shipped (v5.75.2) and closed; the two v5.108.40 cards closed on the README table.",
+  "why": "The cap's 'no bulk sweep' was a deliberate design choice, so widening what a cap acks changes a decided behaviour. The harm is rare (needs a restart within 24 h of a capped multi-camera burst) and the overnight contract escalates anything touching a decision, so it went to Oji as a pick with a default rather than a build. For AirPlay, the card's own constraint requires an attended live test before choosing a linkplay join, but a skip is strictly better than a 100% failure that also hands the WiiM to an empty MA queue, so the skip ships now and the join stays parked behind the test. For the arrival engine, Oji's doctrine is that features die when they are not switched on, so a built-but-off feature is an operator decision to surface, not a soak to park.",
+  "alternatives": [
+    {"option": "Fix the cap's sibling ack overnight", "rejected_because": "It reverses a deliberate design choice in the NM primitive; the overnight pass escalates rather than decides."},
+    {"option": "Send AirPlay moves down the native linkplay join path", "rejected_because": "Untested whether the join carries an AirPlay stream; the card forbids guessing."},
+    {"option": "Park ARRIVAL-ENGINE-S8-1 as not evaluable", "rejected_because": "Parking hides that the only blocker is a profile switch Oji can flip in a minute."}
+  ],
+  "counseling": "Self-correction: the first half of the pass stamped cards with estimated times (02:05 to 03:33) while the clock read 02:11. All of tonight's stamps were rewritten to the real time. Also nearly filed a 'face mislabel reached a CRITICAL page' card before reading that notification_log.person_id is the recipient, not the subject.",
+  "refs": [
+    "docs/planning/kanban.data.yaml (NM-PERIMETER-REPEAT-STORM-1, NM-CAP-LEAVES-BURST-SIBLINGS-UNACKED-1, MF-MA-PATH-NON-MA-SOURCE-1, ARRIVAL-ENGINE-S8-1, SAFEWORD-WINDOW-1, PEOPLE-SCREEN-1)",
+    "custom_components/universal_room_automation/domain_coordinators/notification_manager.py:3392-3470, :6473-6510",
+    "custom_components/universal_room_automation/music_following.py:249-266, :2853-2877",
+    "commits 11dec13b2 466268a88 c11488800 977654b18"
+  ]
+}
