@@ -760,18 +760,20 @@ cards:
 - id: DASH-V8-ANI-WEATHER-FORECAST-1
   title: "ura-v8 Now tab: upgrade Animated Weather Card to v1.3.0 and turn on its forecast"
   thread: dashboard
-  status: shipped_organic
+  status: "parked"
   tier: 1
   created: "2026-11-14 10:55"
-  updated: "2026-11-14 12:40"
+  updated: "2026-11-25 03:14"
   done_2026_11_14: "Backup docs/dashboard-prototypes/ura-v8-backups/20261114T_pre_ani_weather_forecast.json (copy of .storage/lovelace.ura_v8). update.animated_weather_card_update installed v1.2.0 -> v1.3.0 (installed_version now v1.3.0). Now-tab card views[1].sections[0].cards[7]: show_forecast true, tap_action more-info -> forecast (the old explicit more-info would have overridden the new tap view). Mobile screenshot confirms high/low beside the condition, the hourly row (Now..5 PM) and the Temp/Feels like/Rain chance/Rain amount chips. No HA restart needed."
   discriminator: "Panel CPU unchanged: adb top on the Study A or Media Room panel, renderer CPU with the Now tab open, compared with the 11-07 A/B. Not yet measured; needs the panel's adb path (HomeLab). Dispose at the next HomeLab touch: done if within noise, else set show_forecast false (one-line revert)."
   rank: {value: 3, time_criticality: 2, effort: 1}
   origin: "Operator 2026-11-14: 'Also found this updated with forecasts. Ura v8 now tab. Card an update and find a quick slot for it today if possible. Don't get distracted though.' https://github.com/alexsto1an/ha-ani-weather-card/releases/tag/v1.3.0"
   why: "v1.3.0 adds show_forecast (today high/low, change note, hourly row), forecast_metric, a tap-to-open hourly + 7-day view, drag-to-hour, and a separate custom:animated-forecast-card (compact strip). Behaviour changes to handle: with show_forecast on, tap opens the forecast view instead of more-info; many icons move to the forecast icon set; times follow the HA profile time zone; new sixth file animated-weather-card-forecast.js (HACS/Marketplace installs pull it automatically). Release notes say the Marketplace replaced HACS in HA 2026.11; check which one manages it here before upgrading."
-  next: "Quick slot today (no HA restart, frontend only): back up ura-v8 to docs/dashboard-prototypes/ura-v8-backups/, upgrade the card through whichever store manages it, set show_forecast: true on the Now-tab card (keep weather.phalanxmadrone, keep tap opening the forecast view), hard-refresh check on the Study A panel, record CPU spot check like the 11-07 A/B."
+  next: "Parked: revive on the trigger above."
   links: {"sibling_of": ["DASH-V8-ANI-WEATHER-TRIAL-1"], "context": "Same card on the same Now tab; the trial card's indoor-sensor residual stays on the parent."}
   adjacency: "Swept DASH-V8-*, dashboarding workstream, BACKLOG: ADJACENT to DASH-V8-ANI-WEATHER-TRIAL-1 (same card, new version and feature); new card because the operator asked for one and it has its own acceptance (forecast visible, tap view works, panel CPU unchanged)."
+  soak_exit_2026_11_25_overnight: "Shipped part is live (11-14 done_2026_11_14: card v1.3.0, show_forecast true, tap opens forecast, mobile screenshot). The only open clause is the panel CPU check, which needs the wall panel's adb path (HomeLab) and cannot be read from URA/HA data. 11 days in organic with no disposition attempt -> PARKED with a trigger instead of riding (Soak Exit rule 3)."
+  revisit_trigger: "Next HomeLab touch of a wall panel (Study A or Media Room) with adb: read renderer CPU with the Now tab open vs the 11-07 A/B; within noise -> done, else set show_forecast false (one-line revert). Also revive on any report of panel lag on the Now tab."
 - id: DASH-V8-ROOM-STATUS-CHIPS-1
   groom_2026_10_28: "Overnight groom: the old next (inventory chip sources, add detail controls, then chips) described work that was already built on 10-22 (built_2026_10_22); rewritten as the operator REVIEW it is actually waiting on. Not re-verified live tonight (dashboard check needs a browser)."
   updated: "2026-10-28 02:03"
@@ -35383,16 +35385,18 @@ cards:
   residual_2026_11_16_boot_settle_drops_chatter: "Live validation of v5.108.30: the 06:38:30 chatter NM (Garage B ratgdo motion) has an NM dedup entry but no notification_log row. Mechanism (verified in source): NM boot-settle collapses repeat (coordinator, hazard_type) emits in the first NM_BOOT_SETTLE_S=60 s (notification_manager.py:1797-1806, :847-858); every stuck kind shares STUCK_SIGNAL_NM_HAZARD_TYPE, so the dutycycle NM at 06:38:21 swallowed the chatter NM, and fire_stuck_signal still set the per-day latch (_stuck_signal_nm.py:245), so chatter is silent until tomorrow. Fix: include location (the stuck kind) in the boot-settle key for stuck_signal, or have async_notify report the drop so the latch is not set. Tier 1, NM primitive, ship with the next batch. Also README S3a-2 observable was wrong: automation_health.excluded_sensors is dutycycle-only (sensor.py:2613-2616), no entity exposes the chatter exclusion client."
   title: "Stuck-sensor truth S3b (MS600 bit resolves radar by registry model) + S1 (P22 off-pulse tolerance for motion-class inputs; one not-on stretch)"
   thread: presence
-  status: shipped_organic
+  status: "parked"
   shipped_version: v5.108.34
   tier: 2
   created: '2026-11-15 23:40'
-  updated: '2026-11-15 23:40'
+  updated: "2026-11-25 03:12"
   links: {parent: MEDIAROOM-FAN-LEFT-ON-STUCK-SENSORS-1, related: [CHATTER-MODE-SELECT-NOT-WIRED-1]}
   origin: {date: '2026-11-15', gist: 'Split for the deploy; parent keeps S4-S6 (secondary fan work).'}
   why: "PLANNING_stuck_sensor_truth.md rev 2 S3b + S1. Reviews A SHIP, B+D gate cleared by step-0 replay GO (3a87e267: one new >=4 h run, the 11-15 upguest ZV), C tests-only; fix pass 0a3330c9 (dead-stretch accounting from three sources, 4 MEDIUM tests)."
   discriminator_2026_11_15: "Done when the upguest ZV-style case (only sub-10 s blips for >=4 h) is excluded live with no BLE-placed person in the room, AND no room vacated on a BLE-placed person because of a P22 exclusion in the window."
-  next: "Deploy with S3a, then dispose by the discriminator."
+  next: "Parked: revive on the trigger above (one SQL query against anomaly_log + the sensor's recorder history)."
+  soak_exit_2026_11_25_overnight: "NOT-EVALUABLE in window -> PARKED with a revival trigger (Soak Exit rule 3). ura-prober, URA DB anomaly_log coordinator_id=stuck_signal kind=continuous since 11-16 13:00Z: 5 rows - Living Room screek radar x3 (11-16, 11-17, 11-18), Kitchen ZG-204ZX radar (11-21), Game Room HOBEIAN ZG-204ZV (11-22 06:00Z; recorder shows one unbroken 4.15 h 'on' run, no off-pulses, so S1's 10 s tolerance (coordinator.py:2867-2988, STUCK_P22_OFF_GAP_TOLERANCE_S=10.0 const.py:6619) was not exercised). 0 rows for the upguest sensor. Clause (b): no room vacate attributable to P22 on a BLE-placed person (Kitchen and Living Room vacates are max_active_failsafe; the 11-18 Living Room one is the same second as a P22 row, radar tolerance 0, BLE not checked). S3b present: MS600 resolved by registry model at domain_coordinators/sensor_capability.py:398. In-suite proof exists (AUDIT_stuck_s1_step0_replay_2026_11_15.md replay). Logs not read; no log-based all-clear claimed. Limit: the daily latch (coordinator.py:3002) means a re-armed exclusion may not write a row; excluded_sensors attribute history was not queried."
+  revisit_trigger: "An anomaly_log stuck_signal continuous row for a motion-class (ZV-style) input whose recorder history shows sub-10 s off blips, OR a report of a room going vacant with a BLE-placed person in it -> evaluate both discriminator clauses on that event."
 - id: HOUSE-AVG-SENSORS-1
   validated_2026_11_22_overnight: "Full-suite name-diff CLEAN on the combined merge with develop (23846 passed / 0 failed vs develop 23824 / 0; 0 NEW) - see ANOMALY-FLOOD-ROWS-1 validated_2026_11_22_overnight. The 11-21 run was not authoritative (broken baseline). Merge is conflict-free. Waits only on the attended deploy + the Study A Closet / garage PICK."
   mergeprep_2026_11_20_overnight: "Merge-prep 02:10 CST: feat/house-avg-sensors 98335c557 is 1 ahead / 120 behind origin/develop; git merge-tree onto develop is CLEAN. Still waits for the attended deploy (needs a restart)."
