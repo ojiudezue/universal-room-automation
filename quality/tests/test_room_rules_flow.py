@@ -89,7 +89,7 @@ def test_rule_describe_preview_then_save_writes_options():
     assert res["description_placeholders"]["preview"] == (
         "When Oji enters Exercise Room, after dark: turn on Exercise Lamp at 40 percent."
     )
-    saved = _run_step(flow, "room_rule_confirm", {"change_wording": False})
+    saved = _run_step(flow, "room_rule_save")
     assert saved["type"] == "create_entry"
     rules = saved["data"][CONF_AI_RULES]
     assert len(rules) == 1
@@ -151,10 +151,12 @@ def test_rule_model_knob_selects_entity():
 def test_rule_save_turns_switch_on_when_checked():
     flow, services, _ = _flow(response=_resp([LAMP_ON]), switch_state="off")
     res = _run_step(flow, "room_rule_describe", DESCRIBE)
-    keys = [str(k) for k in res["data_schema"].schema]
-    assert keys == ["turn_on_room_rules", "change_wording"]
+    assert res["type"] == "menu"
+    assert res["menu_options"] == [
+        "room_rule_save_turn_on", "room_rule_save", "room_rule_change_wording",
+    ]
     assert res["description_placeholders"]["switch_note"] == "Room rules are off in this room."
-    saved = _run_step(flow, "room_rule_confirm", {"turn_on_room_rules": True, "change_wording": False})
+    saved = _run_step(flow, "room_rule_save_turn_on")
     assert saved["type"] == "create_entry"
     on = [c for c in services.calls if (c.domain, c.service) == ("switch", "turn_on")]
     assert [c.data for c in on] == [{"entity_id": "switch.exercise_room_ai_automation"}]
@@ -163,23 +165,54 @@ def test_rule_save_turns_switch_on_when_checked():
 def test_rule_save_leaves_switch_off_when_unchecked():
     flow, services, _ = _flow(response=_resp([LAMP_ON]), switch_state="off")
     _run_step(flow, "room_rule_describe", DESCRIBE)
-    _run_step(flow, "room_rule_confirm", {"turn_on_room_rules": False, "change_wording": False})
+    saved = _run_step(flow, "room_rule_save")
+    assert saved["type"] == "create_entry"
+    assert len(saved["data"][CONF_AI_RULES]) == 1
     assert not [c for c in services.calls if c.domain == "switch"]
 
 
 def test_rule_confirm_switch_on_has_no_checkbox():
     flow, _s, _ = _flow(response=_resp([LAMP_ON]), switch_state="on")
     res = _run_step(flow, "room_rule_describe", DESCRIBE)
-    assert [str(k) for k in res["data_schema"].schema] == ["change_wording"]
+    assert res["type"] == "menu" and res["step_id"] == "room_rule_confirm"
+    assert res["menu_options"] == ["room_rule_save", "room_rule_change_wording"]
+    assert res["description_placeholders"]["switch_note"] == ""
 
 
 def test_change_wording_returns_to_form_with_text():
     flow, _s, _ = _flow(response=_resp([LAMP_ON]))
     _run_step(flow, "room_rule_describe", DESCRIBE)
-    res = _run_step(flow, "room_rule_confirm", {"change_wording": True})
-    assert res["step_id"] == "room_rule_describe"
+    res = _run_step(flow, "room_rule_change_wording")
+    assert res["type"] == "form" and res["step_id"] == "room_rule_describe"
     keys = {str(k): k for k in res["data_schema"].schema}
     assert keys[CONF_AI_RULE_DESCRIPTION].default() == DESCRIBE[CONF_AI_RULE_DESCRIPTION]
+    # nothing saved, the pending rule is dropped
+    assert getattr(flow, "_rule_pending", None) is None
+
+
+def test_change_wording_on_automation_rule_returns_to_automation_step():
+    flow, _s, _ = _flow()
+    _run_step(flow, "room_rule_automation", {
+        CONF_AI_RULE_TRIGGER: "exit", "rule_automation": "automation.party",
+    })
+    res = _run_step(flow, "room_rule_change_wording")
+    assert res["type"] == "form" and res["step_id"] == "room_rule_automation"
+
+
+def test_describe_step_keeps_when_dropdown():
+    """Screen pick 1: the "When" choice stays on Describe a rule."""
+    flow, _s, _ = _flow()
+    res = _run_step(flow, "room_rule_describe")
+    keys = {str(k): k for k in res["data_schema"].schema}
+    assert CONF_AI_RULE_TRIGGER in keys
+    assert keys[CONF_AI_RULE_TRIGGER].default() == "enter"
+
+
+def test_described_trigger_comes_from_when_choice_not_model():
+    flow, _s, _ = _flow(response=_resp([LAMP_ON]))
+    _run_step(flow, "room_rule_describe", {**DESCRIBE, CONF_AI_RULE_TRIGGER: "exit"})
+    saved = _run_step(flow, "room_rule_save")
+    assert saved["data"][CONF_AI_RULES][0]["trigger_type"] == "exit"
 
 
 def test_run_an_automation_rule_saved_without_model():
@@ -192,7 +225,7 @@ def test_run_an_automation_rule_saved_without_model():
     assert res["description_placeholders"]["preview"] == (
         "When someone leaves Exercise Room: run automation Party if its own conditions pass."
     )
-    saved = _run_step(flow, "room_rule_confirm", {"change_wording": False})
+    saved = _run_step(flow, "room_rule_save")
     r = saved["data"][CONF_AI_RULES][0]
     assert r["source"] == "automation" and r["skip_condition"] is False
     assert r["actions"][0]["data"] == {"skip_condition": False}
@@ -207,7 +240,7 @@ def test_reparse_writes_options_not_data():
     flow._rule_selected = "6a932dd2"
     res = _run_step(flow, "room_rule_recheck")
     assert res["step_id"] == "room_rule_confirm"
-    saved = _run_step(flow, "room_rule_confirm", {"change_wording": False})
+    saved = _run_step(flow, "room_rule_save")
     rules = saved["data"][CONF_AI_RULES]
     assert [r["rule_id"] for r in rules] == ["6a932dd2"]
     assert rules[0]["actions"] == [LAMP_ON] and "needs_parsing" not in rules[0]
@@ -256,23 +289,69 @@ def test_init_menu_has_room_rules_not_old_entries():
     assert "automation_chaining" not in menu and "ai_rules" not in menu
 
 
-def test_cm_rule_writing_model_field_present():
+def _cm_flow(options=None):
     from custom_components.universal_room_automation import config_flow as cf
     from _room_menu_helpers import StubEntry, make_hass
-    entry = StubEntry(data={"entry_type": "coordinator_manager"})
+    entry = StubEntry(data={"entry_type": "coordinator_manager"}, options=options or {})
     flow = cf.UniversalRoomAutomationOptionsFlow(entry)
     flow.hass = make_hass()
     flow.hass.states.async_all = lambda: [MagicMock(entity_id="ai_task.claude_ai_task")]
-    res = run(flow.async_step_coordinator_optimization(None))
-    found = False
-    for key, val in res["data_schema"].schema.items():
-        if str(key) == "optimizer_llm":
-            inner = val.schema.schema
-            for k in inner:
-                if str(k) == "room_rules_ai_task_entity":
-                    found = True
-                    assert k.default() == "ai_task.claude_ai_task"
-    assert found
+    return flow
+
+
+def _all_keys(schema):
+    out = []
+    for key, val in schema.schema.items():
+        out.append(str(key))
+        inner = getattr(getattr(val, "schema", None), "schema", None)
+        if isinstance(inner, dict):
+            out.extend(str(k) for k in inner)
+    return out
+
+
+def test_cm_rule_writing_model_not_in_optimizer_form():
+    """Screen pick 2 (B): the picker left the Optimizer AI settings."""
+    res = run(_cm_flow().async_step_coordinator_optimization(None))
+    keys = _all_keys(res["data_schema"])
+    assert "optimizer_llm_task_entity" in keys          # the section is still read
+    assert "room_rules_ai_task_entity" not in keys
+
+
+def test_cm_menu_has_rule_writing_model_step():
+    flow = _cm_flow()
+    assert "room_rules_model" in flow._cm_menu_options()
+
+
+def test_cm_rule_writing_model_step_default_when_unset():
+    res = run(_cm_flow().async_step_room_rules_model(None))
+    assert res["type"] == "form" and res["step_id"] == "room_rules_model"
+    (key,) = list(res["data_schema"].schema)
+    assert str(key) == "room_rules_ai_task_entity"
+    assert key.default() == "ai_task.claude_ai_task"
+
+
+def test_cm_rule_writing_model_step_shows_existing_value():
+    flow = _cm_flow({"room_rules_ai_task_entity": "ai_task.sonnet_rules"})
+    res = run(flow.async_step_room_rules_model(None))
+    (key,) = list(res["data_schema"].schema)
+    assert key.default() == "ai_task.sonnet_rules"
+
+
+def test_cm_rule_writing_model_step_saves_same_key_keeps_others():
+    flow = _cm_flow({"room_rules_ai_task_entity": "ai_task.old", "optimizer_kill_switch": True})
+    res = run(flow.async_step_room_rules_model({"room_rules_ai_task_entity": "ai_task.sonnet_rules"}))
+    assert res["type"] == "create_entry"
+    assert res["data"] == {
+        "room_rules_ai_task_entity": "ai_task.sonnet_rules",
+        "optimizer_kill_switch": True,
+    }
+
+
+def test_cm_optimizer_save_keeps_rule_writing_model():
+    flow = _cm_flow({"room_rules_ai_task_entity": "ai_task.sonnet_rules"})
+    res = run(flow.async_step_coordinator_optimization({"optimizer_kill_switch": False}))
+    assert res["type"] == "create_entry"
+    assert res["data"]["room_rules_ai_task_entity"] == "ai_task.sonnet_rules"
 
 
 

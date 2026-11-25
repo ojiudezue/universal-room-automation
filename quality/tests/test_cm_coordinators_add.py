@@ -441,7 +441,9 @@ def test_cm_menu_lists_only_added_coordinators():
     assert menu[0] == "add_coordinator"
     assert _settings_steps(menu) == ["coordinator_presence"]
     assert "remove_coordinator" in menu
-    assert menu[-2:] == ["signal_responses", "coordinator_optimization"]
+    assert menu[-3:] == [
+        "signal_responses", "coordinator_optimization", "room_rules_model",
+    ]
 
     # All added -> no Add entry, every settings step present.
     all_on = gate.migrated_cm_options({})
