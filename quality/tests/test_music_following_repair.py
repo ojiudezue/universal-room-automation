@@ -3786,3 +3786,60 @@ async def test_mf_not_transferable_is_counted_as_skip(rig):
     await move(rig, "Kitchen", "Study A")
     assert "source_not_transferable" in rig.mods.mf.MF_SKIP_OUTCOMES
     assert rig.mf.get_diagnostic_data()["outcomes_today"]["source_not_transferable"] == 1
+
+
+
+# ===========================================================================
+# MF-MA-PATH-NON-MA-SOURCE-1: AirPlay on a WiiM is not transferable
+# ===========================================================================
+
+
+def _airplay_source(rig):
+    """Live 11-24 shape: linkplay source player reads source "AirPlay" with no
+    media_content_id; its MA twin reads app_id airplay, active_queue None,
+    media_content_id wiimu_airplay, and is playing (so MA would be picked)."""
+    rig.world.play("kitchen")
+    st = rig.hass.states.get("media_player.kitchen_3")
+    attrs = {k: v for k, v in st.attributes.items() if k != "media_content_id"}
+    rig.hass.states.async_set("media_player.kitchen_3", "playing",
+                              {**attrs, "source": "AirPlay"})
+    tw = rig.hass.states.get("media_player.kitchen_5")
+    rig.hass.states.async_set("media_player.kitchen_5", "playing", {
+        **tw.attributes, "app_id": "airplay", "source": "AirPlay",
+        "media_content_id": "wiimu_airplay", "active_queue": None})
+
+
+@pytest.mark.asyncio
+async def test_mf_airplay_source_skipped_before_ma(rig):
+    _airplay_source(rig)
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A") == "source_not_transferable"
+    assert rig.mf._last_decision["reason"] == "input=AirPlay"
+    assert rig.world.services("music_assistant") == []
+    assert rig.world.services("media_player", "play_media") == []
+    assert _side_effects(rig) == []
+    assert rig.world.state("study_a") == "idle"
+
+
+@pytest.mark.asyncio
+async def test_mf_wiimu_airplay_content_skipped(rig):
+    """Source player carries the AirPlay content id but a plain source name."""
+    rig.world.play("kitchen", content="wiimu_airplay")
+    set_area(rig, "Study A")
+    assert await move(rig, "Kitchen", "Study A") == "source_not_transferable"
+    assert rig.mf._last_decision["reason"] == "content=wiimu_airplay"
+    assert _side_effects(rig) == []
+
+
+@pytest.mark.asyncio
+async def test_mf_real_ma_queue_still_takes_ma_path(rig):
+    """Regression: MA queue playing (app_id music_assistant, active_queue set)."""
+    rig.world.play("kitchen")
+    tw = rig.hass.states.get("media_player.kitchen_5")
+    rig.hass.states.async_set("media_player.kitchen_5", "playing", {
+        **tw.attributes, "app_id": "music_assistant",
+        "source": "Music Assistant Queue", "active_queue": "kitchen_q"})
+    set_area(rig, "Study A")
+    await move(rig, "Kitchen", "Study A")
+    assert rig.mf._last_decision["path"] == "ma"
+    assert len(rig.world.services("music_assistant", "transfer_queue")) == 1
