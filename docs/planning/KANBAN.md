@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-25T02:10:49-06:00_ - _Data commit: `a8633495461b`_ - _last_reconciled: 2026-11-25_
+_Generated: 2026-11-25T02:11:52-06:00_ - _Data commit: `977654b185f8`_ - _last_reconciled: 2026-11-25_
 
 
 ## Columns
@@ -31,14 +31,14 @@ _measuring; truth not yet known_
 
 ### `HA-CORE-MEMORY-GROWTH-1` - HA NUC memory is ~87% with swap full: find what grew (Core 5.0 GB) before blaming URA or anything else — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **investigating** - approval: **implied**
-_created 2026-11-24 22:27 · updated 2026-11-25 02:11 · initial_
+_created 2026-11-24 22:27 · updated 2026-11-25 07:36 · initial_
 - **Problem / Solution:**
   - Problem: the HA NUC is at about 87% memory with swap 100% full, and Home Assistant Core alone is 5.0 GB. Host memory stepped up about 10 points late on 11-13 and has stayed higher across every restart since, and it also creeps up between...
 - **Origin:** 2026-11-24 - Operator relayed the homelab session's Beszel vs status-page finding: Core 4.9 GB, swap full. Operator: 'Make sure its not URA and something we shipped. be precise and don't jump to conclusions.' Also: 'We have our HA health...
 - **Next:** Me: no in-process heap profiling on this host. Remaining evidence path is Beszel per-container history: compare Core's daily peaks over the next week (flat 4.9-5.0 GB so far). Homelab owns voice_incubator (~0.9-1.1 GB, the 11-13 step) an...
 - **Tags:** measure-before-build, no-fabrication-verify, audit-first
 - **Refs:** ~/Code/ha-health-monitor (installed v2.4.0 gcfreeze.py); docs/planning/RUNBOOK_recorder_excludes.md:38; docs/readmes/README_v5.108.21.md
-- **Forensic keys (7):**
+- **Forensic keys (8):**
   - `tier`: 1
   - `evidence_2026_11_24`: Measured 18:22-19:30 CST. (1) Host (ssh ha free -m): 10206/11746 MB used, 1540 available, swap 3876/3877 MB. (2) Core (ha core stats via Supervisor token): memory_usage 5,029,507,072 B, 40.83% of limit; Core boot 11-22 21:46 (v5.108.39 r...
   - `beszel_2026_11_24`: Beszel hub container_stats (read-only, ura-prober, system b7q012hnwk73dgu). STEP 11-13/14 = ADD-ON, NOT CORE, NOT URA: app_f85239b4_voice_incubator absent through the 480m bucket ending 11-13 16:40, 139 MB avg in the bucket ending 11-14 ...
@@ -46,6 +46,7 @@ _created 2026-11-24 22:27 · updated 2026-11-25 02:11 · initial_
   - `incident_2026_11_24_profiler_oom`: MY ACTION CRASHED HA. 22:40-22:41 CST, after the v5.108.40 restart (Core 2.85 GB at boot): turned hahm gc_freeze off, ran profiler.start_log_objects (one growth census logged OK, then stopped), then profiler.start_log_object_sources (sca...
   - `voice_stopped_2026_11_24`: Operator: 'Stop the voice add ons.' 23:04 CST stopped f85239b4_voice_incubator, core_whisper (both exit 137 on forced stop, state 'error' = not running), core_piper (stopped). All three still boot=auto, so they return on the next host re...
   - `overnight_2026_11_25`: 02:00-02:11 CST read-only (ssh ha free -m + ha_get_app installed stats): host used 6853/11746 MB, available 4892 MB, swap 1315/3877 MB (vs 23:05: used 6.6 GB, avail 5.1 GB, swap 1.2 GB). The three voice add-ons are still not running (voi...
+  - `hm_v2_4_1_2026_11_25`: Health Monitor core_mem gap fixed in its repo (operator: 'Issue the fix in that repo and build and push'; picked the direct call over enabling the Supervisor sensors). ha-health-monitor branch v2.4.1-core-stats 8b0d3e1, pushed to GitHub ...
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_
