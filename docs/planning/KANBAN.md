@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-25T02:04:02-06:00_ - _Data commit: `11dec13b2e98`_ - _last_reconciled: 2026-11-24_
+_Generated: 2026-11-25T02:06:50-06:00_ - _Data commit: `466268a88998`_ - _last_reconciled: 2026-11-24_
 
 
 ## Columns
@@ -15,9 +15,9 @@ _Generated: 2026-11-25T02:04:02-06:00_ - _Data commit: `11dec13b2e98`_ - _last_r
 | 📝 Planned | 25 |
 | 🔨 In progress | 4 |
 | 🔍 Review | 0 |
-| ⏸️ Waiting on operator | 39 |
+| ⏸️ Waiting on operator | 41 |
 | ⏳ Waiting on me (Claude) | 2 |
-| 🚀 Shipped (organic open) | 13 |
+| 🚀 Shipped (organic open) | 11 |
 | 🅿️ Parked | 154 |
 | ✅ Done | 505 |
 
@@ -728,7 +728,7 @@ _under review_
 
 _(none)_
 
-## ⏸️ Waiting on operator (39)
+## ⏸️ Waiting on operator (41)
 _needs a human call — groomed first_
 
 ### `CENSUS-DECONFLICTION-LEDGER-1` - Core census: one dedup function (deconflict_house), the crossing ledger with its empty-house anchor, the awareness view and Vision Assisted Census switch (ships dark, trust view unchanged) — _#1 · WSJF 16.0 · v8 tc6 u2 /e1_
@@ -1372,7 +1372,33 @@ _created 2026-11-15 20:10 · updated 2026-11-25 02:25_
   - `verified_2026_11_23_overnight`: STILL-WAITING: no person_profiles key in any URA config entry data/options (core.config_entries 02:05 CST). DO stands.
   - `recheck_2026_11_25_overnight`: LEG 1 MET (ssh ha read of /config/.storage/core.config_entries, 02:10 CST): the Coordinator Manager entry now has options.person_profiles for 4 people (ezinne, jaya, oji_udezue, ziri; each auto_music/auto_scene false, one bedroom + one b...
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#35 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `ARRIVAL-ENGINE-S8-1` - Step 8 arrival engine: arrival music in your own room, welcome scene in your bedroom, departure pause (ships as option B) — _#35 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **identity** - status: **waiting_operator**
+_created 2026-11-16 03:10 · updated 2026-11-25 02:58_
+- **Origin:** 2026-11-16 - Split for the v5.108.31 deploy; parent keeps the live MA test, the final ownership rule and v6.0.0.
+- **Why:** Plan rev 3.6.1 D2/D3/D4. Reviews A+G/B/D -> fix pass c05e2103; review C 436 mutations -> test-gap pass 189509bd (76/76 RED). Operator 2026-11-16: ship option B.
+- **Next:** DO: in URA -> Coordinator Manager options -> People, turn on Arrival music (and, if you want it, Welcome scene with a scene picked) for at least yourself -> I judge the discriminator on your next arrival from memory_episodes (started the...
+- **Forensic keys (3):**
+  - `tier`: 3
+  - `discriminator_2026_11_16`: Done when the first opted-in arrival logs outcome=started (or a named skip) then arrived/wait_* with zero stopped_then_arrived, a same-day GPS flap is skipped short_absence, and the first welcome scene logs scene_confirmed.
+  - `soak_exit_2026_11_25_overnight`: NOT-EVALUABLE, needs you. URA DB memory_episodes: 0 rows of arrival_music or welcome_scene, ever (shipped v5.108.33, 11-16). Why: the engine only acts for an opted-in person (music_following.py:796-807 arrival_opted_in; :1095-1106 skip r...
+
+### `FOYER-FISHEYE-DEWARP-1` - Dewarp the Foyer fisheye still before any interior vision read; the Foyer camera also sees the Living Room (cross-room overlap) — _#36 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **identity** - status: **waiting_operator**
+_created 2026-11-16 01:50 · updated 2026-11-25 03:05_
+- **Origin:** 2026-11-16 - Interior D0(g) pilot (AUDIT_vision_interior_d0g_pilot_2026_11_16.md): both Foyer frames graded wrong.
+- **Next:** DO (daylight, someone standing in the foyer, 1 min): send 'describe foyer' and tell me if the count is right -> right: I close the dewarp leg; wrong: I re-fit INTERIOR_DEWARP_VIEWS_BY_DEVICE (reviewed constant). The overlap zone (residua...
+- **Forensic keys (8):**
+  - `operator_2026_11_16_scope`: Ah ok then (accepting: foyer-floor zone + per-still dewarp now; full Frigate dewarp stream only for Foyer face recognition, revisited after Frigate 2 memory pressure is sorted)
+  - `operator_2026_11_16_dewarp`: (Option C, a camera or Frigate dewarp stream) This is we can [if we can]. / Protect has a dewarp view but not frigate AFAIK, although we should check
+  - `operator_2026_11_16_overlap`: Yes we can fix the overlap
+  - `facts_2026_11_16`: Foyer = Ubiquiti AI Theta, 360 lens (sensor lens_type 360); Protect RTSP channels are square raw fisheye only (2560/1280/720); the Protect app's dewarp is client-side, not a stream. Family Room AI Theta has a 4:3 lens (3264x2448) and rea...
+  - `tier`: 2
+  - `operator_2026_11_16`: 2 people in the foyer. Fisheye messing up the recogniction. We need a dewarp / foyer is empty but living room has 2 people
+  - `soak_exit_2026_11_25_overnight`: PARTIAL, needs you. (1) Dewarp SHIPPED v5.108.32 as a per-still remap (interior_dewarp.py; counter interior_vision.py:816); README_v5.108.32 row 3 Partial PASS: groups_dewarp_capable = Foyer + Living Room. Fire check (URA DB memory_episo...
+  - `residual_overlap_2026_11_25`: Foyer camera also sees the Living Room: draw a foyer-floor-only Frigate zone on the Foyer camera (show you the outline on a still first), restart Frigate while awake, then switch the URA interior record and ledger floor overlap to that z...
+
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#37 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -1392,7 +1418,7 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#36 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#38 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **census** - status: **waiting_operator** - approval: **explicit**
 _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
 - **Problem / Solution:**
@@ -1415,7 +1441,7 @@ _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
   - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRE...
   - `sweep_2026_10_05`: Board census/egress cards swept; GAP-A-CENSUS-HOLE-1 ADJACENT. NEW.
 
-### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#37 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#39 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
 - **Problem / Solution:**
@@ -1435,7 +1461,7 @@ _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
   - `contradiction_2026_10_19_overnight`: CARD-WAS-WRONG on its own next: update_2026_10_15 records YOUR answer ('rapid change isn't that a heat thing for fire? If so it's a fix') and verified temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859) -> disposition FIX (B)...
   - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#38 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#40 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -1450,7 +1476,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-### `CROSSING-LEDGER-RESTART-RESTORE-1` - Every Home Assistant restart wipes the crossing ledger's known head count, and it only re-learns it when the house is next seen empty, so the ledger is known ~15% of the time — _#39 · WSJF 0.8 · v6 tc3 u2 /e13_
+### `CROSSING-LEDGER-RESTART-RESTORE-1` - Every Home Assistant restart wipes the crossing ledger's known head count, and it only re-learns it when the house is next seen empty, so the ledger is known ~15% of the time — _#41 · WSJF 0.8 · v6 tc3 u2 /e13_
 thread: **vision** - status: **waiting_operator** - approval: **blocked**
 _created 2026-11-24 02:08 · initial_
 - **Problem / Solution:**
@@ -1507,7 +1533,7 @@ _created 2026-10-20 08:30 · updated 2026-11-11 02:05_
   - `verify_2026_11_11_overnight`: CARD-WAS-WRONG + PARTIALLY-DONE. The card's 'APPROVE ESPHome filters + UDM templates + panel/device_time excludes' was stale: the 10-20 attended session already applied that batch as recorder excludes (RUNBOOK_recorder_excludes.md ledger...
   - `staged_2026_11_11_overnight`: Batch 2a staged, NOT applied: recorder exclude globs sensor.span_panel_*_produced_energy and _produced_energy_2 (~9k rows/hr, 92 entities, 84 never change; zero consumers in Energy prefs, all lovelace dashboards, automations.yaml, packag...
 
-## 🚀 Shipped (organic open) (13)
+## 🚀 Shipped (organic open) (11)
 _live, awaiting proof_
 
 ### `NM-DIGEST-MARK-RACE-1` - mark_digest_delivered marks every undelivered row, including rows queued while the digest was sending, so they never appear in any digest — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
@@ -1710,30 +1736,7 @@ _created 2026-11-15 23:40_
   - `tier`: 2
   - `discriminator_2026_11_15`: Done when the upguest ZV-style case (only sub-10 s blips for >=4 h) is excluded live with no BLE-placed person in the room, AND no room vacated on a BLE-placed person because of a P22 exclusion in the window.
 
-### `FOYER-FISHEYE-DEWARP-1` - Dewarp the Foyer fisheye still before any interior vision read; the Foyer camera also sees the Living Room (cross-room overlap) — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **identity** - status: **shipped_organic**
-_created 2026-11-16 01:50_
-- **Origin:** 2026-11-16 - Interior D0(g) pilot (AUDIT_vision_interior_d0g_pilot_2026_11_16.md): both Foyer frames graded wrong.
-- **Next:** Me (morning, house awake): (1) dewarp per the feasibility audit; (2) overlap: draw a foyer-floor-only Frigate zone on the Foyer camera, show the operator the outline on a still before saving, Frigate restart while awake; switch URA inter...
-- **Forensic keys (6):**
-  - `operator_2026_11_16_scope`: Ah ok then (accepting: foyer-floor zone + per-still dewarp now; full Frigate dewarp stream only for Foyer face recognition, revisited after Frigate 2 memory pressure is sorted)
-  - `operator_2026_11_16_dewarp`: (Option C, a camera or Frigate dewarp stream) This is we can [if we can]. / Protect has a dewarp view but not frigate AFAIK, although we should check
-  - `operator_2026_11_16_overlap`: Yes we can fix the overlap
-  - `facts_2026_11_16`: Foyer = Ubiquiti AI Theta, 360 lens (sensor lens_type 360); Protect RTSP channels are square raw fisheye only (2560/1280/720); the Protect app's dewarp is client-side, not a stream. Family Room AI Theta has a 4:3 lens (3264x2448) and rea...
-  - `tier`: 2
-  - `operator_2026_11_16`: 2 people in the foyer. Fisheye messing up the recogniction. We need a dewarp / foyer is empty but living room has 2 people
-
-### `ARRIVAL-ENGINE-S8-1` - Step 8 arrival engine: arrival music in your own room, welcome scene in your bedroom, departure pause (ships as option B) — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **identity** - status: **shipped_organic**
-_created 2026-11-16 03:10_
-- **Origin:** 2026-11-16 - Split for the v5.108.31 deploy; parent keeps the live MA test, the final ownership rule and v6.0.0.
-- **Why:** Plan rev 3.6.1 D2/D3/D4. Reviews A+G/B/D -> fix pass c05e2103; review C 436 mutations -> test-gap pass 189509bd (76/76 RED). Operator 2026-11-16: ship option B.
-- **Next:** Deploy v5.108.31 with the morning restart; live checks per README; then the live MA test sets the ownership rule (parent).
-- **Forensic keys (2):**
-  - `tier`: 3
-  - `discriminator_2026_11_16`: Done when the first opted-in arrival logs outcome=started (or a named skip) then arrived/wait_* with zero stopped_then_arrived, a same-day GPS flap is skipped short_absence, and the first welcome scene logs scene_confirmed.
-
-### `LAYER-LEAK-CLEANUP-1` - Close the person-awareness layer's remaining leaks (34 groups after ship 3a/3b) in a few grouped cleanup cards, driving the guard's allowlist total down — _#13 · WSJF 1.3 · v4 tc2 u2 /e6_
+### `LAYER-LEAK-CLEANUP-1` - Close the person-awareness layer's remaining leaks (34 groups after ship 3a/3b) in a few grouped cleanup cards, driving the guard's allowlist total down — _#11 · WSJF 1.3 · v4 tc2 u2 /e6_
 status: **shipped_organic**
 _created 2026-11-14 16:45_
 - **Origin:** 2026-11-14 - Layer ship 3 Q10.
