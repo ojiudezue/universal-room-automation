@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-24T18:35:59-06:00_ - _Data commit: `51bbfff8a578`_ - _last_reconciled: 2026-11-24_
+_Generated: 2026-11-24T18:53:03-06:00_ - _Data commit: `4bc0fcbed91c`_ - _last_reconciled: 2026-11-24_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-11-24T18:35:59-06:00_ - _Data commit: `51bbfff8a578`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 0 |
+| 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 25 |
 | 🔨 In progress | 4 |
@@ -26,10 +26,21 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (0)
+## 🔬 Investigating (1)
 _measuring; truth not yet known_
 
-_(none)_
+### `HA-CORE-MEMORY-GROWTH-1` - HA NUC memory is ~87% with swap full: find what grew (Core 5.0 GB) before blaming URA or anything else — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **platform** - status: **investigating** - approval: **implied**
+_created 2026-11-24 22:27 · initial_
+- **Problem / Solution:**
+  - Problem: the HA NUC is at about 87% memory with swap 100% full, and Home Assistant Core alone is 5.0 GB. Host memory stepped up about 10 points late on 11-13 and has stayed higher across every restart since, and it also creeps up between...
+- **Origin:** 2026-11-24 - Operator relayed the homelab session's Beszel vs status-page finding: Core 4.9 GB, swap full. Operator: 'Make sure its not URA and something we shipped. be precise and don't jump to conclusions.' Also: 'We have our HA health...
+- **Next:** Me: (a) pull Beszel per-container history for the homeassistant container across 11-13 (decides Core vs add-on for the step); (b) after the next restart, sample ha core stats at boot and hourly; (c) with operator OK, add the built-in Pro...
+- **Tags:** measure-before-build, no-fabrication-verify, audit-first
+- **Refs:** ~/Code/ha-health-monitor (installed v2.4.0 gcfreeze.py); docs/planning/RUNBOOK_recorder_excludes.md:38; docs/readmes/README_v5.108.21.md
+- **Forensic keys (2):**
+  - `tier`: 1
+  - `evidence_2026_11_24`: Measured 18:22-19:30 CST. (1) Host (ssh ha free -m): 10206/11746 MB used, 1540 available, swap 3876/3877 MB. (2) Core (ha core stats via Supervisor token): memory_usage 5,029,507,072 B, 40.83% of limit; Core boot 11-22 21:46 (v5.108.39 r...
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_
