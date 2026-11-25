@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "352",
+  "author": "ojiudezue",
+  "session_id": "claude_20261125_043330_ship_v5_108_40",
+  "timestamp": "2026-11-25T04:33:30Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.40 shipped: Batched release: room rules screens, sub-HIGH photo alerts reach the digest, music test leak",
+  "summary": "Batched release: room rules screens, sub-HIGH photo alerts reach the digest, music test leak",
+  "why": "Room-rules picks took the operator defaults (keep / B / B, unvetoed since 11-20) because v5.108.39 shipped the rules without them and the screens were the last piece of that arc. The alert fix widens the existing v5.108.17 digest fallback instead of lowering channel severity gates, since lowering gates would change delivery for every MEDIUM alert, a policy the operator never picked; the photo is lost in the digest, which beats reaching nobody. The music test fix restores what it swaps so later test files see real classes. Each branch passed its own reviews, mutation drills and a full-suite name-diff, and the merged develop passed a full name-diff (23864 passed, 0 new).",
+  "implications": "Shipped AI-ROOM-RULES-TRUST-REPAIR-1, NM-SECURITY-IMAGE-SUBHIGH-NO-ROUTE-1, TEST-MUSIC-SYSMODULES-LEAK-1 at v5.108.40; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.40.md (Live criteria).",
+  "revisit_trigger": "notification_log rows for perimeter_alert with bucket_outcome='no_channel_fired' stay at 0 after the restart, LOW/MEDIUM perimeter alerts appear as digest rows, and one Run-an-automation room rule runs end to end with a decision row",
+  "refs": {
+    "cards": [
+      "AI-ROOM-RULES-TRUST-REPAIR-1",
+      "NM-SECURITY-IMAGE-SUBHIGH-NO-ROUTE-1",
+      "TEST-MUSIC-SYSMODULES-LEAK-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.40.md"
+    ],
+    "release_notes": "- Room rules: Rule writing model gets its own Coordinator Manager step; Check your rule is a plain Save / Change the wording menu (plus Save and turn on when the room switch is off); When dropdown pinned by tests\n- Notifications: MEDIUM/LOW outdoor person alerts with a photo that reached no channel now fall back to the digest (text only)\n- Tests: music-following test restores sys.modules after its stub surgery"
+  }
+}
