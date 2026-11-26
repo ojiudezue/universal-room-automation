@@ -1835,3 +1835,20 @@ def test_review_c_storm_guard_platform_filter(clock, monkeypatch):
 ])
 def test_convective_requires_storm_condition_and_strong_rain(event, outlook, expected):
     assert inc.forecast_confirms(event, outlook) is expected
+
+
+def test_preonset_floor_offpeak_reason_states_floor_once(clock):
+    """EC-PREONSET-REASON-NARRATION-1: an off-peak tick under a pre-onset
+    floor names the floor in the off-peak leg and does NOT also append
+    '+ pre-onset floor N' (no double statement); the write is unchanged."""
+    now = T(16, 23)
+    wsw = alert("Winter Storm Warning", sent=T(16, 6), onset=T(17, 1),
+                ends=T(17, 12), id_="wsw")
+    c, s, _ = bshell(clock, now, soc="70", alerts=[wsw], option=False)
+    d = tick(clock, c, s, now)
+    assert s._tick_reserve_floor == 80
+    assert d["reason"] == (
+        "Off-peak hold — SOC 70.0% <= storm floor 80% (drain target 20%, "
+        "good; floor holds reserve)"
+    ), d["reason"]
+    assert sets(d) and all(v >= 80 for v in sets(d))

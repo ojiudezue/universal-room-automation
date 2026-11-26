@@ -7344,8 +7344,22 @@ class BatteryStrategy:
         # full_hold returns before this branch, and for partial_hold
         # `_tick_reserve_floor == decision.reserve_floor == effective_reserve`
         # (fusion's partial floor is already max(reserve_soc, partial)).
+        # EC-PREONSET-REASON-NARRATION-1: keep the solar-class target for
+        # narration only, so a floor-raised target is not printed as if it
+        # were the drain target. Decisions still use `drain_target`.
+        _base_drain_target = drain_target
         if self._tick_reserve_floor is not None:
             drain_target = max(drain_target, self._tick_reserve_floor)
+        if drain_target > _base_drain_target:
+            _target_phrase = (
+                f"storm floor {drain_target}% (drain target "
+                f"{_base_drain_target}%, {drain_class_for_target}; floor "
+                f"holds reserve)"
+            )
+        else:
+            _target_phrase = (
+                f"target {drain_target}% (target {drain_class_for_target})"
+            )
 
         # dp-drain-target-value-stamp — VALUE STAMP. Publish the fully
         # composed off_peak drain target (post multi-day-max, post
@@ -7369,8 +7383,7 @@ class BatteryStrategy:
                 # phrasing (`target=<class>`) — no more self-contradicting
                 # "target 30% (tomorrow excellent)" strings on class-disagreement
                 # days.
-                f"Off-peak drain — SOC {soc}% > target {drain_target}% "
-                f"(target {drain_class_for_target}){_ladder_suffix}",
+                f"Off-peak drain — SOC {soc}% > {_target_phrase}{_ladder_suffix}",
                 current_mode,
                 reserve_level=drain_target,
                 season=season,
@@ -7390,8 +7403,7 @@ class BatteryStrategy:
         return self._result(
             BATTERY_MODE_SELF_CONSUMPTION,
             # CF-1: same narration fix as the drain leg above.
-            f"Off-peak hold — SOC {soc}% <= target {drain_target}% "
-            f"(target {drain_class_for_target}){_ladder_suffix}",
+            f"Off-peak hold — SOC {soc}% <= {_target_phrase}{_ladder_suffix}",
             current_mode,
             reserve_level=hold_reserve,
             season=season,
@@ -7742,6 +7754,9 @@ class BatteryStrategy:
             and getattr(_inc, "preonset_floor", None) is not None
             and _folded_reserve is not None
             and not reason.startswith("Inclement pre-onset")
+            # EC-PREONSET-REASON-NARRATION-1: the off-peak leg already
+            # names the floor; don't state it twice.
+            and "storm floor " not in reason
         ):
             reason = f"{reason} + pre-onset floor {_folded_reserve}"
 

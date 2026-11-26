@@ -476,7 +476,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 15.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 15.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "jun_03|partial|soc15|hw0|arb1": {
     "actions": [
@@ -493,7 +493,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 15.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 15.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "jun_03|partial|soc15|hw60|arb0": {
     "actions": [],
@@ -502,7 +502,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 15.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 15.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "jun_03|partial|soc15|hw60|arb1": {
     "actions": [],
@@ -511,7 +511,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 15.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 15.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "jun_03|partial|soc45|hw0|arb0": {
     "actions": [
@@ -528,7 +528,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 45.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 45.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "jun_03|partial|soc45|hw0|arb1": {
     "actions": [
@@ -545,7 +545,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 45.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 45.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "jun_03|partial|soc45|hw60|arb0": {
     "actions": [],
@@ -554,7 +554,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 45.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 45.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "jun_03|partial|soc45|hw60|arb1": {
     "actions": [],
@@ -563,7 +563,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 45.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 45.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "jun_03|partial|soc85|hw0|arb0": {
     "actions": [
@@ -580,7 +580,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak drain \u2014 SOC 85.0% > target 60% (target good)"
+    "reason": "Off-peak drain \u2014 SOC 85.0% > storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "jun_03|partial|soc85|hw0|arb1": {
     "actions": [
@@ -597,7 +597,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak drain \u2014 SOC 85.0% > target 60% (target good)"
+    "reason": "Off-peak drain \u2014 SOC 85.0% > storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "jun_03|partial|soc85|hw60|arb0": {
     "actions": [],
@@ -606,7 +606,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak drain \u2014 SOC 85.0% > target 60% (target good)"
+    "reason": "Off-peak drain \u2014 SOC 85.0% > storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "jun_03|partial|soc85|hw60|arb1": {
     "actions": [],
@@ -615,7 +615,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak drain \u2014 SOC 85.0% > target 60% (target good)"
+    "reason": "Off-peak drain \u2014 SOC 85.0% > storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "jun_15|full|soc15|hw0|arb0": {
     "actions": [
@@ -2442,7 +2442,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 15.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 15.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "oct_03|partial|soc15|hw0|arb1": {
     "actions": [
@@ -2459,7 +2459,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 15.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 15.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "oct_03|partial|soc15|hw60|arb0": {
     "actions": [],
@@ -2468,7 +2468,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 15.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 15.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "oct_03|partial|soc15|hw60|arb1": {
     "actions": [],
@@ -2477,7 +2477,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 15.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 15.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "oct_03|partial|soc45|hw0|arb0": {
     "actions": [
@@ -2494,7 +2494,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 45.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 45.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "oct_03|partial|soc45|hw0|arb1": {
     "actions": [
@@ -2511,7 +2511,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 45.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 45.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "oct_03|partial|soc45|hw60|arb0": {
     "actions": [],
@@ -2520,7 +2520,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 45.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 45.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "oct_03|partial|soc45|hw60|arb1": {
     "actions": [],
@@ -2529,7 +2529,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak hold \u2014 SOC 45.0% <= target 60% (target good)"
+    "reason": "Off-peak hold \u2014 SOC 45.0% <= storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "oct_03|partial|soc85|hw0|arb0": {
     "actions": [
@@ -2546,7 +2546,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak drain \u2014 SOC 85.0% > target 60% (target good)"
+    "reason": "Off-peak drain \u2014 SOC 85.0% > storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "oct_03|partial|soc85|hw0|arb1": {
     "actions": [
@@ -2563,7 +2563,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak drain \u2014 SOC 85.0% > target 60% (target good)"
+    "reason": "Off-peak drain \u2014 SOC 85.0% > storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "oct_03|partial|soc85|hw60|arb0": {
     "actions": [],
@@ -2572,7 +2572,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak drain \u2014 SOC 85.0% > target 60% (target good)"
+    "reason": "Off-peak drain \u2014 SOC 85.0% > storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "oct_03|partial|soc85|hw60|arb1": {
     "actions": [],
@@ -2581,7 +2581,7 @@
     "desired": 60,
     "dp_stamp": 60,
     "mode": "self_consumption",
-    "reason": "Off-peak drain \u2014 SOC 85.0% > target 60% (target good)"
+    "reason": "Off-peak drain \u2014 SOC 85.0% > storm floor 60% (drain target 15%, good; floor holds reserve)"
   },
   "oct_18|full|soc15|hw0|arb0": {
     "actions": [
