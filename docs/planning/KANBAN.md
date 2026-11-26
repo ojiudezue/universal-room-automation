@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-25T23:50:16-06:00_ - _Data commit: `2d4bf1a7e99b`_ - _last_reconciled: 2026-11-25_
+_Generated: 2026-11-26T02:07:03-06:00_ - _Data commit: `cd24911cb521`_ - _last_reconciled: 2026-11-25_
 
 
 ## Columns
@@ -12,14 +12,14 @@ _Generated: 2026-11-25T23:50:16-06:00_ - _Data commit: `2d4bf1a7e99b`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 14 |
-| 📝 Planned | 24 |
-| 🔨 In progress | 6 |
+| 📝 Planned | 23 |
+| 🔨 In progress | 7 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 42 |
 | ⏳ Waiting on me (Claude) | 2 |
-| 🚀 Shipped (organic open) | 9 |
+| 🚀 Shipped (organic open) | 8 |
 | 🅿️ Parked | 156 |
-| ✅ Done | 505 |
+| ✅ Done | 506 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -232,7 +232,7 @@ _updated 2026-10-21 22:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (24)
+## 📝 Planned (23)
 _has plan / acceptance_
 
 ### `DASH-ANOMALY-COVERAGE-BADGE-1` - PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes — _#1 · WSJF 5.0 · v2 tc1 u2 /e1_
@@ -488,20 +488,7 @@ _created 2026-11-15 14:20_
   - `INSTANCE_2026_11_15_upguest`: AUDIT_upguest_fan_held_occupancy_2026_11_15.md, folded here (same class). Guest Bedroom 2 held by one motion-class ZG-204ZV (registry model_id) on continuously since 13:51:48 with 1.5-4 s off pulses; nobody home since 13:09; house AWAY 1...
   - `related_finding`: Same stuck inputs block the crossing-ledger empty-house anchor (CENSUS-DECONFLICTION-LEDGER-1 INSTANCE_2026_11_15_ledger_unknown_since_boot: mediaroom Matter occupancy + Meross presence_motion held while the house is AWAY).
 
-### `EC-PREONSET-REASON-NARRATION-1` - Battery strategy reason calls the storm pre-onset floor the solar drain target ("SOC 21% <= target 50% (target excellent)") — _#20 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **planned**
-_created 2026-11-25 23:55 · initial_
-- **Problem / Solution:**
-  - Problem: on 11-25 a Freeze Warning (onset 03:00, unconfirmed by forecast, low 37F) set the pre-onset floor to 50 (lower floor = max(reserve 10, partial_hold_reserve_floor default 50), inclement.py:1353) from 23:00. The reason attribute r...
-  - Mechanism: energy_battery.py:7348 raises drain_target = max(drain_target, _tick_reserve_floor) and the hold narration at :7393 prints that raised value labelled with the solar class; :7746 then appends '+ pre-onset floor'.
-  - Fix (narration only, no behaviour change): keep the base solar target in its own variable for the reason string; when the tick floor exceeds it, narrate 'drain target 10% (excellent); storm floor 50% (Freeze Warning) holds reserve'. Same...
-- **Next:** Build in the next batch (Tier 1, narration). Test pins the reason string with tick floor > drain target and with no floor (byte-identical). Ships with the next attended restart (house asleep tonight).
-- **Forensic keys (3):**
-  - `tier`: 1
-  - `sibling_dashboard_fix_2026_11_25`: URA v8 Energy > Storm Watch hero card showed 'All clear / no alerts' because it read only inclement_state (none until onset) and active_alert_event. Patched live 23:5x: shows 'Preparing'/'Alert ahead' in orange plus '<event> starts <time...
-  - `swept_against`: kanban (pre-onset floor / narration grep: none), CF-1 narration comments in energy_battery.py
-
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#21 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#20 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -518,7 +505,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#22 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#21 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-10-15 02:14_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -538,7 +525,7 @@ _updated 2026-10-15 02:14_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#23 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#22 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-11-06 02:37 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
@@ -577,7 +564,7 @@ _created 2026-08-19 07:45 · updated 2026-11-06 02:37 · refined_
   - `INSTANCE_2026_10_18_unload_hygiene_order`: Overnight build observation: test_unload_symmetry_task_hygiene.py::test_room_name_desync_retry_registers_on_unload_when_loaded and ::test_room_name_desync_retry_cancels_inline_when_not_loaded fail with AttributeError when run together wi...
   - `INSTANCE_2026_11_03_optimization_isolation`: Found during overnight merge-prep. quality/tests/test_optimization_coordinator.py run ALONE on develop @30e4c61a gives 10 failed (registration, arrester_via_coordinator_manager, handshake_suppresses_hvac, handshake_veto, kill_switch_abor...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#24 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#23 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -592,7 +579,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (6)
+## 🔨 In progress (7)
 _being built_
 
 ### `MF-MA-PATH-NON-MA-SOURCE-1` - Music following sends every WiiM move down the Music Assistant path even when the music is AirPlay, so all 13 moves since 11-21 failed — _#1 · WSJF 7.0 · v7 tc5 u2 /e2_
@@ -677,7 +664,21 @@ _created 2026-11-08 20:30 · updated 2026-11-12 17:01_
   - `adjacency_2026_11_08`: Grepped const.py for owner/pref/bedroom CONF keys (none) and the board for person preference/room owner (none; 'owner' hits are entity/cover ownership, a different concept). Planning docs to read in the pre-plan: known_person_annotation,...
   - `scope_add_2026_11_12_arrival_music`: Operator: add arrival-triggered music to this card. Today music_following.py:549 only logs on SIGNAL_PERSON_ARRIVING (arrival-start never built). Scope: on a confirmed arrival of an identified person, start their profile playlist in thei...
 
-### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#6 · WSJF 1.9 · v9 tc4 u2 /e8_
+### `EC-PREONSET-REASON-NARRATION-1` - Battery strategy reason calls the storm pre-onset floor the solar drain target ("SOC 21% <= target 50% (target excellent)") — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **in_progress**
+_created 2026-11-25 23:55 · updated 2026-11-26 02:07 · initial_
+- **Problem / Solution:**
+  - Problem: on 11-25 a Freeze Warning (onset 03:00, unconfirmed by forecast, low 37F) set the pre-onset floor to 50 (lower floor = max(reserve 10, partial_hold_reserve_floor default 50), inclement.py:1353) from 23:00. The reason attribute r...
+  - Mechanism: energy_battery.py:7348 raises drain_target = max(drain_target, _tick_reserve_floor) and the hold narration at :7393 prints that raised value labelled with the solar class; :7746 then appends '+ pre-onset floor'.
+  - Fix (narration only, no behaviour change): keep the base solar target in its own variable for the reason string; when the tick floor exceeds it, narrate 'drain target 10% (excellent); storm floor 50% (Freeze Warning) holds reserve'. Same...
+- **Next:** Me: verify the builder's branch (base, diff, reason-text readers, drill), Tier-1 review, full-suite name-diff, move to review for the next attended batched release.
+- **Forensic keys (4):**
+  - `tier`: 1
+  - `sibling_dashboard_fix_2026_11_25`: URA v8 Energy > Storm Watch hero card showed 'All clear / no alerts' because it read only inclement_state (none until onset) and active_alert_event. Patched live 23:5x: shows 'Preparing'/'Alert ahead' in orange plus '<event> starts <time...
+  - `swept_against`: kanban (pre-onset floor / narration grep: none), CF-1 narration comments in energy_battery.py
+  - `gate_2026_11_26_overnight`: Validity STILL-REAL: develop energy_battery.py:7347-7348 still raises drain_target = max(drain_target, _tick_reserve_floor) and the hold (~:7393) / drain (~:7372) narrations print that raised value with the solar-class label; :7746 appen...
+
+### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#7 · WSJF 1.9 · v9 tc4 u2 /e8_
 thread: **identity** - status: **in_progress**
 _created 2026-11-12 22:00 · updated 2026-11-17 02:07_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
@@ -1565,7 +1566,7 @@ _created 2026-10-20 08:30 · updated 2026-11-11 02:05_
   - `verify_2026_11_11_overnight`: CARD-WAS-WRONG + PARTIALLY-DONE. The card's 'APPROVE ESPHome filters + UDM templates + panel/device_time excludes' was stale: the 10-20 attended session already applied that batch as recorder excludes (RUNBOOK_recorder_excludes.md ledger...
   - `staged_2026_11_11_overnight`: Batch 2a staged, NOT applied: recorder exclude globs sensor.span_panel_*_produced_energy and _produced_energy_2 (~9k rows/hr, 92 entities, 84 never change; zero consumers in Energy prefs, all lovelace dashboards, automations.yaml, packag...
 
-## 🚀 Shipped (organic open) (9)
+## 🚀 Shipped (organic open) (8)
 _live, awaiting proof_
 
 ### `NM-DIGEST-MARK-RACE-1` - mark_digest_delivered marks every undelivered row, including rows queued while the digest was sending, so they never appear in any digest — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
@@ -1679,29 +1680,7 @@ _created 2026-11-12 22:00 · updated 2026-11-24 02:05_
   - `tier`: 3
   - `overnight_note_2026_11_19`: 02:0x CST read: update.universal_room_automation_update installed_version v5.108.38 (= latest, last_changed 01:36); the kitchen smoke entity's last_changed 23:03 on 11-18 suggests an HA-side event then. I could not confirm from logs whet...
 
-### `NM-SECURITY-IMAGE-SUBHIGH-NO-ROUTE-1` - Outdoor person alerts with a photo at MEDIUM/LOW still reach no one: forced 'send now' skips the digest, and no channel accepts that severity — _#6 · WSJF 3.0 · v4 tc3 u2 /e3_
-thread: **notifications** - status: **shipped_organic** - approval: **implied**
-_created 2026-11-21 02:06 · updated 2026-11-25 02:11 · initial_
-- **⏰ Due:** 2026-11-28 09:00 — Dispose by: find one LOW/MEDIUM perimeter alert with a photo since the v5.108.40 restart and confirm it landed as a digest row (route_reason force_immediate_security_image or a digest row), and no_channel_fired stays 0.
-- **Problem / Solution:**
-  - Problem: when an outdoor person alert carries a photo, URA insists on sending it right away instead of in the twice-daily digest (the digest cannot carry the photo). But the phone and message channels only accept HIGH or CRITICAL alerts,...
-- **Origin:** 2026-11-21 - Overnight soak-exit disposal of NM-NO-CHANNEL-FIRED-1: every residual no_channel_fired row is a perimeter exterior_person alert with a snapshot.
-- **Why:** v5.108.17 promised that alerts that reached no one now reach the digest; this path still breaks that promise. Measured, not assumed: notification_log 11-14..11-21, 49 rows bucket_outcome=no_channel_fired, all coordinator_id=perimeter_ale...
-- **Next:** Me by 11-28: query notification_log for a LOW/MEDIUM perimeter_alert row since 11-24 22:36 CST; digest row present and no_channel_fired 0 -> done; a LOW/MEDIUM perimeter alert with no delivered/digest row -> back to review.
-- **Tags:** tier-2, no-fabrication-verify, measure-before-build
-- **Parsimony:** [BUILD] A MEDIUM/LOW exterior_person alert with a snapshot sent to a digest-pref recipient produces no channel send and no digest row.
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/notification_manager.py:1704; docs/readmes/README_v5.108.17.md; docs/planning/PLANNING_nm_image_delivery.md
-- **Forensic keys (8):**
-  - `tier`: 2
-  - `mechanism`: notification_manager.py:1704-1707 _force_immediate_for_security_image (hazard in NM_SECURITY_HAZARDS and a snapshot) -> :2075-2081 effective_pref = IMMEDIATE for every recipient; the router (_route_for_recipient, channel severity gates c...
-  - `gate_2026_11_21`: 1 validity: STILL-REAL (query above, 02:00-02:11 CST). 1b config-first: lowering the companion gate to MEDIUM would deliver these but also every other MEDIUM alert immediately (a policy change for all alerts, the operator never picked it...
-  - `adjacency`: Swept 2026-11-21: board (grep force_immediate/security_image - no card), BACKLOG.md (none), PLANNING_nm_image_delivery.md / PLANNING_consol_1 / PLANNING_perimeter_fp_build (the forcing rule's origin; no parked deliverable covers the no-c...
-  - `verified_2026_11_24_overnight`: STILL-REAL (URA DB notification_log bucket_outcome='no_channel_fired'): perimeter_alert 11-20 LOW 2 + MEDIUM 2, 11-22 LOW 1, 11-23 LOW 6 (after v5.108.39). Gate from 11-21 stands (BUILD, Tier 2). Review lane is 0, so the WIP cap allows i...
-  - `validated_2026_11_24_evening`: Build (branch fix/nm-security-image-subhigh-fallback, 7797aa76b + README draft e07a29391) passed reviews A and B overnight (both SHIP, LOW doc notes folded into the README draft). The overnight full-suite name-diff was cut off by the hos...
-  - `install_2026_11_24`: v5.108.40 installed via Marketplace 22:35 CST (installed_version v5.108.40, pending-restart). Restart HELD: house in Sleep since 22:00 (no restart while the house sleeps). Restart when the house is awake, then live-validate per README_v5...
-  - `organic_2026_11_25_overnight`: PARTIAL (URA DB notification_log, 02:00-02:11 CST, since the 11-24 22:36 CST restart): 0 no_channel_fired rows of any kind (was the failure). Perimeter rows since restart: 36 HIGH (companion, delivered=1; 4 via force_immediate_security_i...
-
-### `REGISTRY-NOT-NAMES-1` - Replace every entity-name / suffix / slug guess (platform, NVR family, device, person, room) with registry lookups, house-wide — _#7 · WSJF 2.8 · v9 tc6 u2 /e6_
+### `REGISTRY-NOT-NAMES-1` - Replace every entity-name / suffix / slug guess (platform, NVR family, device, person, room) with registry lookups, house-wide — _#6 · WSJF 2.8 · v9 tc6 u2 /e6_
 status: **shipped_organic**
 _refined ×1_
 - **Origin:** 2026-11-13 - Operator on perimeter and census still guessing NVR family from names.
@@ -1722,7 +1701,7 @@ _refined ×1_
   - `verified_2026_11_15_overnight`: CARD-WAS-WRONG on lane/next: the read-only sweep this card asked for is DONE (docs/planning/AUDIT_registry_not_names_sweep_2026_11_13.md, 171 raw hits, 8 clusters, ~45 sites; children carded). Investigation CONFIRMED -> umbrella in_progr...
   - `sweep_2026_11_13`: AUDIT_registry_not_names_sweep_2026_11_13.md: 171 raw hits, 8 clusters, ~45 decision sites. Children: ROOM-OCCUPIED-ENTITY-REGISTRY-RESOLVE-1, BLE-PERSON-SENSOR-REGISTRY-RESOLVE-1. NVR gaps for the witness plan: perimeter_alert.py:2179 s...
 
-### `PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1` - Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold — _#8 · WSJF 2.8 · v7 tc5 u2 /e5_
+### `PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1` - Circling hop 1 and hop 3 are both HIGH in production, so the claim that their severities differ (and their NM dedup keys cannot collide) does not hold — _#7 · WSJF 2.8 · v7 tc5 u2 /e5_
 thread: **security** - status: **shipped_organic**
 _created 2026-11-13 12:00 · updated 2026-11-22 02:02 · refined_
 - **⏰ Due:** 2026-11-29 09:00 — Shipped v5.108.39 11-22 21:46. Rare event: dispose when one escalation lands titled Perimeter Alert — Person Escalated, or at this date convert to the in-suite proof + trip-wire.
@@ -1746,7 +1725,7 @@ _created 2026-11-13 12:00 · updated 2026-11-22 02:02 · refined_
   - `measured_2026_11_16_overnight`: CONFIRMED, and wider than the card said (read-only, ~02:25 CST). (1) Code: NM dedup key is f'{coordinator_id}:{title}:{location}' (notification_manager.py:4809-4825); severity only picks the window (DEDUP_WINDOWS: CRITICAL 60 s, HIGH 300...
   - `paged_2026_11_16_overnight`: Paged 2026-11-16 02:37 CST via notify.madronehapushover priority -1 (quiet, wakes nobody) with the PICK.
 
-### `LAYER-LEAK-CLEANUP-1` - Close the person-awareness layer's remaining leaks (34 groups after ship 3a/3b) in a few grouped cleanup cards, driving the guard's allowlist total down — _#9 · WSJF 1.3 · v4 tc2 u2 /e6_
+### `LAYER-LEAK-CLEANUP-1` - Close the person-awareness layer's remaining leaks (34 groups after ship 3a/3b) in a few grouped cleanup cards, driving the guard's allowlist total down — _#8 · WSJF 1.3 · v4 tc2 u2 /e6_
 status: **shipped_organic**
 _created 2026-11-14 16:45_
 - **Origin:** 2026-11-14 - Layer ship 3 Q10.
@@ -3962,8 +3941,31 @@ _created 2026-09-01 20:30 · initial_
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
-## ✅ Done (505)
+## ✅ Done (506)
 _closed, evidence in refs_
+
+### `NM-SECURITY-IMAGE-SUBHIGH-NO-ROUTE-1` - Outdoor person alerts with a photo at MEDIUM/LOW still reach no one: forced 'send now' skips the digest, and no channel accepts that severity — _WSJF 3.0 · v4 tc3 u2 /e3_
+thread: **notifications** - status: **done** - approval: **implied**
+_created 2026-11-21 02:06 · updated 2026-11-26 02:07 · initial_
+- **⏰ Due:** 2026-11-28 09:00 — Dispose by: find one LOW/MEDIUM perimeter alert with a photo since the v5.108.40 restart and confirm it landed as a digest row (route_reason force_immediate_security_image or a digest row), and no_channel_fired stays 0.
+- **Problem / Solution:**
+  - Problem: when an outdoor person alert carries a photo, URA insists on sending it right away instead of in the twice-daily digest (the digest cannot carry the photo). But the phone and message channels only accept HIGH or CRITICAL alerts,...
+- **Origin:** 2026-11-21 - Overnight soak-exit disposal of NM-NO-CHANNEL-FIRED-1: every residual no_channel_fired row is a perimeter exterior_person alert with a snapshot.
+- **Why:** v5.108.17 promised that alerts that reached no one now reach the digest; this path still breaks that promise. Measured, not assumed: notification_log 11-14..11-21, 49 rows bucket_outcome=no_channel_fired, all coordinator_id=perimeter_ale...
+- **Next:** None - closed on evidence.
+- **Tags:** tier-2, no-fabrication-verify, measure-before-build
+- **Parsimony:** [BUILD] A MEDIUM/LOW exterior_person alert with a snapshot sent to a digest-pref recipient produces no channel send and no digest row.
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/notification_manager.py:1704; docs/readmes/README_v5.108.17.md; docs/planning/PLANNING_nm_image_delivery.md
+- **Forensic keys (9):**
+  - `tier`: 2
+  - `mechanism`: notification_manager.py:1704-1707 _force_immediate_for_security_image (hazard in NM_SECURITY_HAZARDS and a snapshot) -> :2075-2081 effective_pref = IMMEDIATE for every recipient; the router (_route_for_recipient, channel severity gates c...
+  - `gate_2026_11_21`: 1 validity: STILL-REAL (query above, 02:00-02:11 CST). 1b config-first: lowering the companion gate to MEDIUM would deliver these but also every other MEDIUM alert immediately (a policy change for all alerts, the operator never picked it...
+  - `adjacency`: Swept 2026-11-21: board (grep force_immediate/security_image - no card), BACKLOG.md (none), PLANNING_nm_image_delivery.md / PLANNING_consol_1 / PLANNING_perimeter_fp_build (the forcing rule's origin; no parked deliverable covers the no-c...
+  - `verified_2026_11_24_overnight`: STILL-REAL (URA DB notification_log bucket_outcome='no_channel_fired'): perimeter_alert 11-20 LOW 2 + MEDIUM 2, 11-22 LOW 1, 11-23 LOW 6 (after v5.108.39). Gate from 11-21 stands (BUILD, Tier 2). Review lane is 0, so the WIP cap allows i...
+  - `validated_2026_11_24_evening`: Build (branch fix/nm-security-image-subhigh-fallback, 7797aa76b + README draft e07a29391) passed reviews A and B overnight (both SHIP, LOW doc notes folded into the README draft). The overnight full-suite name-diff was cut off by the hos...
+  - `install_2026_11_24`: v5.108.40 installed via Marketplace 22:35 CST (installed_version v5.108.40, pending-restart). Restart HELD: house in Sleep since 22:00 (no restart while the house sleeps). Restart when the house is awake, then live-validate per README_v5...
+  - `organic_2026_11_25_overnight`: PARTIAL (URA DB notification_log, 02:00-02:11 CST, since the 11-24 22:36 CST restart): 0 no_channel_fired rows of any kind (was the failure). Perimeter rows since restart: 36 HIGH (companion, delivered=1; 4 via force_immediate_security_i...
+  - `organic_evidence_2026_11_26`: DISCRIMINATOR MET (URA DB notification_log, coordinator_id=perimeter_alert, LOW/MEDIUM, since 11-25 04:36Z = 11-24 22:36 CST, read 02:15 CST): 85 rows, every alert has a digest-channel row or a digest_queued outcome (MEDIUM digest 38 del...
 
 ### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **notifications** - status: **done** - approval: **operator_proposed**
