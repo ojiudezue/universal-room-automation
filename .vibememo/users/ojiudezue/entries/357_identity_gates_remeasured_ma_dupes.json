@@ -1,0 +1,15 @@
+{
+  "format_version": "2.1",
+  "entry_id": "357",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-26T19:40:00Z",
+  "type": "finding",
+  "weight": "moderate",
+  "title": "Identity arc re-measured before wrap-up: attach doubled, named notices halved; MA stale entries removed",
+  "summary": "Oji asked whether the census/identity measurements were holding so the arc could wrap toward 6.0.0 (never released; still v5.108.40). A live 7-day re-measure: crossing attach 63% (was 33%), but named arrival/departure notices fell to 20% (was ~40%), every arrival this week was logged under house_state guest, ledger known-time ~16% vs the 25% gate with no anchor since 11-20, the 11-20 direction/names scoring was never run, and person_profiles now exist but auto flags are off so the Step 8 engine stays inert. Separately, Music Assistant errors were two 2025 zeroconf config entries for old server ids (setup_error, owning nothing); one add-on only. Both entries deleted.",
+  "why": "Wrapping an arc on stale numbers would declare done what the data says is slipping. The attach-up/named-down divergence is the decisive finding: the name is lost between the crossing and the notification, so the next work is read-only diagnosis of that seam, not more producers. MA entries were safe to delete because they owned 0 entities and their unique_ids matched no live server.",
+  "alternatives_considered": [
+    "Declare the arc wrapped on the 11-19 map statuses (rejected: two gates overdue, one slipping)",
+    "Reload the stale MA entries (rejected: old server ids, auth can never succeed)"
+  ]
+}
