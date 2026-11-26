@@ -10,15 +10,31 @@ Drives the real CM update listener (`_async_update_listener`) and the real
 from __future__ import annotations
 
 import asyncio
+import importlib
+import sys
 from unittest.mock import MagicMock
 
 import pytest
 
-import custom_components.universal_room_automation as pkg
 from custom_components.universal_room_automation import const as c
 from custom_components.universal_room_automation.domain_coordinators.presence_fan_recheck import (
     FanRecheckManager,
 )
+
+_PKG = "custom_components.universal_room_automation"
+
+
+@pytest.fixture
+def pkg(monkeypatch):
+    """The REAL package module. Some earlier suite tests leave a stub in
+    sys.modules under the package name (no listener, no suppress set), so a
+    module-level import is order-dependent. Same resolve pattern as
+    test_egress_edge_anchor.test_confusable_pairs_save_does_not_reload_cm."""
+    mod = sys.modules.get(_PKG)
+    if mod is None or not hasattr(mod, "_async_update_listener"):
+        monkeypatch.delitem(sys.modules, _PKG, raising=False)
+        mod = importlib.import_module(_PKG)
+    return mod
 
 # (key, value that differs from the default) - literal values, not imported.
 _CASES = [
@@ -59,7 +75,7 @@ def _run(coro):
         loop.close()
 
 
-def test_literals_match_const():
+def test_literals_match_const(pkg):
     consts = {
         c.CONF_FAN_RECHECK_ARM_DELAY_S, c.CONF_FAN_RECHECK_SPINDOWN_S,
         c.CONF_FAN_RECHECK_WINDOW_S, c.CONF_FAN_RECHECK_COOLDOWN_S,
@@ -73,7 +89,7 @@ def test_literals_match_const():
 
 
 @pytest.mark.parametrize("key,value", _CASES)
-def test_timing_knob_save_applies_in_place_no_reload(key, value):
+def test_timing_knob_save_applies_in_place_no_reload(key, value, pkg):
     cm = _CMEntry({"presence_enabled": True, "fan_recheck_enabled": True})
     hass = _listener_hass(cm)
     cm.options = {**cm.options, key: value}          # what HA persists
@@ -86,7 +102,7 @@ def test_timing_knob_save_applies_in_place_no_reload(key, value):
     assert mgr._timing_config()[key] == value
 
 
-def test_non_allowlisted_key_still_reloads():
+def test_non_allowlisted_key_still_reloads(pkg):
     cm = _CMEntry({"presence_enabled": True})
     hass = _listener_hass(cm)
     cm.options = {**cm.options, "presence_enabled": False}
