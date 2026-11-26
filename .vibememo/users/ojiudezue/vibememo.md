@@ -142,3 +142,6 @@ Trying to size URA's share inside Core, the Profiler's object-source scan double
 
 
 **2026-11-26, the identity arc isn't ready to wrap.** Oji wanted to close the census and identity arc cleanly; 6.0.0 has never shipped. Re-measured live: crossings now carry a name 63% of the time (up from 33%), yet only 20% of arrival notices name anyone (down from 40%), so a name is being lost between the door and the message. The ledger gate is still failing, the 11-20 scoring was never run, and the arrival engine has profiles but is switched off. Music Assistant's errors were two leftover 2025 entries for dead servers; they were deleted → [357](users/ojiudezue/entries/357_identity_gates_remeasured_ma_dupes.json).
+
+
+**2026-11-26, correction: named notices never dropped.** The earlier "40% to 20%" read had no October baseline, and the guest-mode claim was wrong. Named notices actually rose. The gap is a threshold: crossings store a name at any confidence, but a notice names someone only at 0.75, and most faces score 0.6 from one camera. The fix is the phone-corroboration anchor that has never fired, plus maybe a hedged "probably Jaya" line → [358](users/ojiudezue/entries/358_named_notice_drop_refuted.json).
