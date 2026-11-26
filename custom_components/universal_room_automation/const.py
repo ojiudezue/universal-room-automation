@@ -4660,12 +4660,21 @@ MF_RETURN_MATCH_WINDOW_S: Final = 120
 # source_not_transferable before any fade or play_media.
 MF_NON_TRANSFERABLE_CONTENT_PREFIXES: Final = (
     "x-sonos-htastream:", "x-rincon-stream:",
+    # MF-MA-PATH-NON-MA-SOURCE-1: AirPlay pushed from a phone. The MA twin of
+    # a WiiM reads media_content_id "wiimu_airplay" (recorder 11-21/11-24).
+    "wiimu_airplay",
+    # Same, upper-case form seen with source "Unknown" (matched lower-cased).
+    "airplay",
 )
 # Lower-cased exact values of the source player's ``source`` attribute.
 MF_NON_TRANSFERABLE_SOURCES: Final = frozenset({
     "tv", "line-in", "line in", "linein", "hdmi", "hdmi arc", "hdmi-arc",
     "optical", "spdif", "aux", "analog", "arc", "phono", "rca", "xlr",
     "bluetooth",
+    # MF-MA-PATH-NON-MA-SOURCE-1: AirPlay is pushed from a phone; no server
+    # side path (MA transfer, play_media) can move it. Live 11-24: linkplay
+    # source player source="AirPlay" at all 30 failed/ma decisions.
+    "airplay",
 })
 # Lower-cased prefixes of the same attribute (linkplay numbers its inputs:
 # "Line In 2", "Optical 2", "Coaxial 2").

@@ -339,8 +339,12 @@ class TestOptionKeyRegisteredForReloadSuppression:
         idx = init_src.find("OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str]")
         assert idx >= 0, "OPTIONS_RELOAD_SUPPRESS_KEYS declaration not found"
         # The alias `_CONF_HVAC_AC_RAMP_MASTER_ENABLED` must appear in
-        # the block. Slice conservatively 4KB forward.
-        block = init_src[idx:idx + 4000]
+        # the block. Slice to the set literal's closing `})` (a fixed 4 KB
+        # window broke when entries were added at the top of the set,
+        # PRESENCE-FAN-RECHECK-RELOAD-SUPPRESS-1).
+        end = init_src.find("\n})", idx)
+        assert end > idx, "OPTIONS_RELOAD_SUPPRESS_KEYS closing brace not found"
+        block = init_src[idx:end]
         assert "_CONF_HVAC_AC_RAMP_MASTER_ENABLED" in block, (
             "hvac_ac_ramp_master_enabled alias missing from "
             "OPTIONS_RELOAD_SUPPRESS_KEYS — without this the switch "

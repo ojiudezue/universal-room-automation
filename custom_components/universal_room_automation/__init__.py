@@ -7455,7 +7455,29 @@ _OFFPEAK_DRAIN_QUALITY: dict[str, str] = {
 # entity state, and the Number setter is the sole write path (verified:
 # no config/options-flow path writes these keys), so the entity-state
 # read sees fresh values without a live-attr push.
+# PRESENCE-FAN-RECHECK-RELOAD-SUPPRESS-1: the 8 fan-recheck timing knobs on
+# the Presence options step. FanRecheckManager._timing_config
+# (domain_coordinators/presence_fan_recheck.py) re-reads every one of them
+# from the CM entry options on each call, and every consumer gets its value
+# through that call at use time, so a save needs no reload and no live-attr
+# push. Literals == const.CONF_FAN_RECHECK_* values (pinned by a test).
+# CONF_FAN_RECHECK_TRUST_SENSORS_OK is NOT here: it is a per-room option
+# (room entry), never read from the CM entry.
+_FAN_RECHECK_TIMING_KEYS: frozenset[str] = frozenset({
+    "fan_recheck_arm_delay_s",
+    "fan_recheck_spindown_s",
+    "fan_recheck_window_s",
+    "fan_recheck_cooldown_s",
+    "fan_recheck_max_per_hour",
+    "fan_recheck_hvac_suppress_s",
+    "fan_recheck_mmwave_history_ticks",
+    "fan_recheck_family_scaling_enabled",
+})
+
+
 _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
+    # PRESENCE-FAN-RECHECK-RELOAD-SUPPRESS-1 (see the set above).
+    *_FAN_RECHECK_TIMING_KEYS,
     # Step 7 S1: CONF_EGRESS_CONFUSABLE_PAIRS (literal == const value), read
     # fresh per door crossing by EgressDirectionTracker._confusable_partners.
     "egress_confusable_pairs",
@@ -7639,6 +7661,9 @@ _MF_LIVE_KEYS: frozenset[str] = frozenset({
 
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
+    # PRESENCE-FAN-RECHECK-RELOAD-SUPPRESS-1: read live by
+    # FanRecheckManager._timing_config on every use (no reload needed).
+    *_FAN_RECHECK_TIMING_KEYS,
     # Step 7 S1: "Faces often confused", read fresh per crossing (no reload).
     "egress_confusable_pairs",
     # v4.7.26 (Cycle 1) — HVAC presence timers + DPM dwell

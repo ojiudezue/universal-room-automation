@@ -290,6 +290,72 @@ def test_partial_hold_clamp_stamps_effective_reserve():
 
 
 # ---------------------------------------------------------------------------
+# EC-PREONSET-REASON-NARRATION-1 — floor-raised target narrated as a floor
+# ---------------------------------------------------------------------------
+
+
+def _watch(strat, hass):
+    _arm_alert(strat, hass, event="Severe Thunderstorm Watch",
+               severity="Severe", certainty="Possible")
+
+
+def test_floor_raised_drain_reason_names_floor_and_base_target():
+    """Watch partial_hold floor 50 > excellent drain target 10, SOC 80:
+    the reason names the floor and the real drain target, never
+    'target 50% (target excellent)'. Decisions unchanged: reserve 50,
+    stamp 50, self_consumption."""
+    strat, hass = _make_battery(soc=80)
+    _watch(strat, hass)
+    r = strat.determine_mode("off_peak", "summer", now=_NOW)
+    assert r["reason"] == (
+        "Off-peak drain — SOC 80.0% > storm floor 50% (drain target 10%, "
+        "excellent; floor holds reserve)"
+    ), r["reason"]
+    assert r["mode"] == "self_consumption"
+    assert strat._offpeak_drain_branch_target == 50
+    assert strat._last_reserve_level_desired == 50
+
+
+def test_floor_raised_hold_reason_names_floor_and_base_target():
+    """Operator 11-25 shape: SOC 21 under a floor of 50, excellent day."""
+    strat, hass = _make_battery(soc=21)
+    _watch(strat, hass)
+    r = strat.determine_mode("off_peak", "summer", now=_NOW)
+    assert r["reason"] == (
+        "Off-peak hold — SOC 21.0% <= storm floor 50% (drain target 10%, "
+        "excellent; floor holds reserve)"
+    ), r["reason"]
+    assert "pre-onset floor" not in r["reason"]
+    assert strat._offpeak_drain_branch_target == 50
+    assert strat._last_reserve_level_desired == 50
+
+
+@pytest.mark.parametrize("soc,expected", [
+    (50, "Off-peak drain — SOC 50.0% > target 10% (target excellent)"),
+    (8, "Off-peak hold — SOC 8.0% <= target 10% (target excellent)"),
+])
+def test_no_floor_reason_byte_identical(soc, expected):
+    strat, _hass = _make_battery(soc=soc)
+    r = strat.determine_mode("off_peak", "summer", now=_NOW)
+    assert r["reason"] == expected
+
+
+@pytest.mark.parametrize("base,soc,expected", [
+    # floor 50 == base 50 (boundary) and floor 50 < base 60: legacy text.
+    (50, 80, "Off-peak drain — SOC 80.0% > target 50% (target excellent)"),
+    (50, 30, "Off-peak hold — SOC 30.0% <= target 50% (target excellent)"),
+    (60, 80, "Off-peak drain — SOC 80.0% > target 60% (target excellent)"),
+])
+def test_floor_not_above_base_reason_byte_identical(base, soc, expected):
+    strat, hass = _make_battery(soc=soc)
+    strat._drain_targets = {k: base for k in strat._drain_targets}
+    _watch(strat, hass)
+    r = strat.determine_mode("off_peak", "summer", now=_NOW)
+    assert strat._tick_reserve_floor == 50
+    assert r["reason"] == expected
+
+
+# ---------------------------------------------------------------------------
 # Coordinator side — capture + thread; no attr read in DP tick / shadow
 # ---------------------------------------------------------------------------
 

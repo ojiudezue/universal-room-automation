@@ -286,6 +286,15 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "music_on_arrival_start",
     # PERSON-PROFILE-PREFERENCES-1 step 8 §10.1: People screen saves in place.
     "person_profiles",
+    # PRESENCE-FAN-RECHECK-RELOAD-SUPPRESS-1: fan-recheck timing knobs.
+    "fan_recheck_arm_delay_s",
+    "fan_recheck_spindown_s",
+    "fan_recheck_window_s",
+    "fan_recheck_cooldown_s",
+    "fan_recheck_max_per_hour",
+    "fan_recheck_hvac_suppress_s",
+    "fan_recheck_mmwave_history_ticks",
+    "fan_recheck_family_scaling_enabled",
 }
 
 
@@ -455,7 +464,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +1 EGRESS-DIRECTION-AWARE-IDENTITY-1 step 7 S1 egress_confusable_pairs -> 138
     # +2 SECURITY-LOCK-STALE-STATE-1 lock freshness N + re-page R Numbers -> 140
     # +1 AI-ROOM-RULES-TRUST-REPAIR-1 room_rules_ai_task_entity -> 141
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 141
+    # +8 PRESENCE-FAN-RECHECK-RELOAD-SUPPRESS-1 fan-recheck timing -> 149
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 149
 
 
 # ---------------------------------------------------------------------------
@@ -488,6 +498,7 @@ def _load_init_dispatch_namespace() -> dict:
         # MUSIC-FOLLOWING-TRANSFER-REPAIR-1 D7: MF knob bundle spliced into
         # OPTIONS_RELOAD_SUPPRESS_KEYS and read by _apply_in_place.
         "_MF_LIVE_KEYS",
+        "_FAN_RECHECK_TIMING_KEYS",
     }
     keep_funcs = {
         "_seed_cm_last_applied_options",

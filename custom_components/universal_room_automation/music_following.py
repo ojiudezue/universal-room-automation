@@ -254,8 +254,11 @@ def _non_transferable(state) -> str:
     attrs = getattr(state, "attributes", None) or {}
     cid = attrs.get("media_content_id")
     if isinstance(cid, str):
+        # Case-insensitive: WiiM MA twins also report "AIRPLAY" (recorder,
+        # MF-MA-PATH-NON-MA-SOURCE-1 review LOW). Prefixes are lower-case.
+        low_cid = cid.lower()
         for prefix in _c.MF_NON_TRANSFERABLE_CONTENT_PREFIXES:
-            if cid.startswith(prefix):
+            if low_cid.startswith(prefix):
                 return f"content={prefix}"
     src = attrs.get("source")
     if isinstance(src, str):
