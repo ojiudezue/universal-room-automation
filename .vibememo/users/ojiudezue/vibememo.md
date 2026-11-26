@@ -133,3 +133,6 @@ Trying to size URA's share inside Core, the Profiler's object-source scan double
 
 
 **2026-11-25, the Health Monitor gets its Core memory reading.** The monitor's Core memory field was always blank because HA only collects those stats while two disabled-by-default sensors are on. Oji asked for the 'no Supervisor calls' rule to be reconsidered only for good reason. Portability was that reason: the call never holds the loop, and enabling sensors would only fix this house. v2.4.1 is pushed, not installed → [355](users/ojiudezue/entries/355_hm_core_stats_direct_call_portability.json).
+
+
+**2026-11-25 evening, a 50% reserve that looked like a drain target.** Oji asked why URA set the drain target to 50%. It was the storm module's floor for a Freeze Warning starting at 03:00; the forecast didn't confirm a freeze, so it held the battery without buying grid power, as the storm doctrine says. The dashboard called it "All clear" and the reason text called it the solar target. The card was fixed live; the wording fix waits for the next attended restart → [356](users/ojiudezue/entries/356_storm_floor_dashboard_and_narration.json).
