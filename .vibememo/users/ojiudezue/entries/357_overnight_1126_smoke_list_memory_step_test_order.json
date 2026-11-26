@@ -1,0 +1,16 @@
+{
+  "format_version": "2.1",
+  "entry_id": "357",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-26T08:30:00Z",
+  "type": "decision",
+  "weight": "medium",
+  "title": "Overnight 11-26: a re-paired smoke detector URA still cannot see, a Core memory step left unattributed, and a green-alone test that failed in suite order",
+  "summary": "Three findings from the unattended pass. (1) The kitchen Heiman smoke detector came back at 00:20 as a new Matter device with new entity ids; the old ids were deleted, but URA's global_smoke_sensors still lists the old one, so Safety stays blind even though HA can see smoke again. (2) Core memory stepped from its 3.7-5.0 GB daily cycle to a flat 6.3-6.6 GB starting ~14:50 on 11-25; Beszel shows Core is the whole host rise. A frontend reconnect loop from Android 13 Chrome (7-12k system_log.write calls an hour) is a lead but does not time-match. (3) Last night's fan-recheck reload-suppress tests passed alone but failed 10/10 in the full suite because they imported the package at module load and caught a stub an earlier test left in sys.modules; an older test also scanned only the first 4 KB of the suppress set.",
+  "why": "The smoke fix is a URA options write that can reload coordinators, and the card scoped config writes to attended sessions, so I paged instead of writing it at 02:00 in a sleeping house; the detector still sounds locally. For memory I stopped at measurement: the operator's 11-24 rule is not to attribute without evidence, the profiler crashed Core on 11-24, and the log tool was down, so naming a cause would have been a guess; the card asks for the error_log read before the next restart wipes the evidence. For the tests I fixed the test side, not production: the suppression code was reviewed SHIP, and the failure was order pollution, proven by running the old and new test after the same polluting file (old 10 fail, new pass). The 4 KB window now slices to the set's closing brace so the next addition cannot break it.",
+  "alternatives_considered": [
+    "Write the smoke list fix overnight (an options save may reload coordinators during Sleep; card scoped it attended)",
+    "Attribute the memory step to the reconnect loop (rate rose at 11:00, step at 14:50: does not match)",
+    "Move the new keys to the end of the suppress set to satisfy the 4 KB test (hides a brittle test instead of fixing it)"
+  ]
+}

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-26T02:07:03-06:00_ - _Data commit: `cd24911cb521`_ - _last_reconciled: 2026-11-25_
+_Generated: 2026-11-26T02:08:02-06:00_ - _Data commit: `7362755214b2`_ - _last_reconciled: 2026-11-25_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-11-26T02:07:03-06:00_ - _Data commit: `cd24911cb521`_ - _last_r
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 23 |
-| 🔨 In progress | 7 |
-| 🔍 Review | 0 |
+| 🔨 In progress | 4 |
+| 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 42 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 8 |
@@ -245,17 +245,7 @@ _created 2026-10-24 08:00_
 - **Forensic keys (1):**
   - `swept_2026_10_24`: NEW. Lovelace side already done under DASHBOARD-V8-FIX-BATCH-1; no PWA card exists.
 
-### `TEST-SUITE-POLLUTION-AND-STALE-DRILLS-1` - Test hygiene: fan_incident replay corrupts real homeassistant.core; two stale mutation drills — _#2 · WSJF 5.0 · v2 tc1 u2 /e1_
-thread: **quality** - status: **planned**
-_created 2026-11-07 17:30 · updated 2026-11-08 02:06_
-- **Why:** (1) quality/tests/test_fan_incident_2026_08_01_replay.py:146-153 setattr()s MagicMock onto the REAL homeassistant.core (State/Event/HomeAssistant/callback) at import; it breaks later real-HA tests (lockout real-HA test needed a restore f...
-- **Next:** Fix (1) by scoping the stub to the test (monkeypatch) instead of import-time setattr; repair (2)/(3); triage (4).
-- **Forensic keys (3):**
-  - `INSTANCE_2026_11_14_batch2`: Batch 2 gate fixes found more of this class. Fixed in release/batch-2: - d30c1160: test_fan_incident_2026_08_01_replay.py and test_activity_logger.py restore what they stub; - 75bd75e1: four collection-time leakers (test_fan_manual_off_c...
-  - `tier`: 1
-  - `verify_2026_11_08_overnight`: STILL-REAL for (1): quality/tests/test_fan_incident_2026_08_01_replay.py:146-155 still setattr()s mocks onto an already-imported real module at import time (the 'else: setattr(_existing, ...)' branch), so it pollutes later real-HA tests....
-
-### `CENSUS-MAIN-ENTRY-DOOR-FIELD-DEAD-1` - Camera census 'main entry door' claims arrival estimates but has no reader — _#3 · WSJF 5.0 · v2 tc1 u2 /e1_
+### `CENSUS-MAIN-ENTRY-DOOR-FIELD-DEAD-1` - Camera census 'main entry door' claims arrival estimates but has no reader — _#2 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **platform** - status: **planned**
 _created 2026-11-11 13:30_
 - **Why:** Help text promises behaviour nothing implements.
@@ -264,7 +254,7 @@ _created 2026-11-11 13:30_
   - `tier`: 1
   - `adjacency`: Swept with the audit; NEW.
 
-### `CREATE-FLOW-FAN-SPEEDS-FOLLOW-THERMOSTAT-1` - Create flow asks fan-speed temps only in Room-temperature mode, but Follow-thermostat rooms use them — _#4 · WSJF 5.0 · v2 tc1 u2 /e1_
+### `CREATE-FLOW-FAN-SPEEDS-FOLLOW-THERMOSTAT-1` - Create flow asks fan-speed temps only in Room-temperature mode, but Follow-thermostat rooms use them — _#3 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **platform** - status: **planned**
 _created 2026-11-11 13:30_
 - **Why:** automation.py:2789-2801,:3204 read them in follow-thermostat rooms.
@@ -272,6 +262,17 @@ _created 2026-11-11 13:30_
 - **Forensic keys (2):**
   - `tier`: 1
   - `adjacency`: Swept with the audit; NEW.
+
+### `TEST-SUITE-POLLUTION-AND-STALE-DRILLS-1` - Test hygiene: fan_incident replay corrupts real homeassistant.core; two stale mutation drills — _#4 · WSJF 5.0 · v2 tc1 u2 /e1_
+thread: **quality** - status: **planned**
+_created 2026-11-07 17:30 · updated 2026-11-26 02:42_
+- **Why:** (1) quality/tests/test_fan_incident_2026_08_01_replay.py:146-153 setattr()s MagicMock onto the REAL homeassistant.core (State/Event/HomeAssistant/callback) at import; it breaks later real-HA tests (lockout real-HA test needed a restore f...
+- **Next:** Fix (1) by scoping the stub to the test (monkeypatch) instead of import-time setattr; repair (2)/(3); triage (4).
+- **Forensic keys (4):**
+  - `INSTANCE_2026_11_14_batch2`: Batch 2 gate fixes found more of this class. Fixed in release/batch-2: - d30c1160: test_fan_incident_2026_08_01_replay.py and test_activity_logger.py restore what they stub; - 75bd75e1: four collection-time leakers (test_fan_manual_off_c...
+  - `tier`: 1
+  - `verify_2026_11_08_overnight`: STILL-REAL for (1): quality/tests/test_fan_incident_2026_08_01_replay.py:146-155 still setattr()s mocks onto an already-imported real module at import time (the 'else: setattr(_existing, ...)' branch), so it pollutes later real-HA tests....
+  - `INSTANCE_2026_11_26_overnight`: Two more order-dependence shapes seen in the 11-26 combo runs: (a) a test importing the package at module level gets an earlier test's sys.modules stub (fixed in that test with a resolve-real-module fixture; the stub-leaving harnesses e....
 
 ### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#5 · WSJF 3.8 · v8 tc5 u6 /e5_
 thread: **quality** - status: **planned** - approval: **explicit**
@@ -579,42 +580,10 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (7)
+## 🔨 In progress (4)
 _being built_
 
-### `MF-MA-PATH-NON-MA-SOURCE-1` - Music following sends every WiiM move down the Music Assistant path even when the music is AirPlay, so all 13 moves since 11-21 failed — _#1 · WSJF 7.0 · v7 tc5 u2 /e2_
-thread: **music** - status: **in_progress**
-_created 2026-11-22 02:05 · updated 2026-11-26 02:06 · refined_
-- **Problem / Solution:**
-  - Problem: when someone plays music to a WiiM speaker over AirPlay and walks to another room, URA tries to move it with Music Assistant, but Music Assistant has nothing queued (the music never went through it), so the move fails every time...
-- **Origin:** 2026-11-22 - Found by the overnight soak-exit disposition of MUSIC-FOLLOWING-TRANSFER-REPAIR-1 (ura-prober + orchestrator recorder read).
-- **Why:** Music following is operator mission-critical (ships ON, must work day 1). AirPlay to WiiM appears to be the household's normal way to play, so the MA path as wired fails on the common case.
-- **Next:** Me: verify the builder's branch (base, diff, drill), one Tier-1 review, full-suite name-diff, then move to review for the next attended batched release. Parked alt: linkplay join for AirPlay after the attended live test.
-- **Parsimony:** [BUILD] With AirPlay playing on a WiiM source, _resolve_path returns PATH_MA and transfer_queue fails 100% of the time.
-- **Refs:** docs/readmes/README_v5.108.35.md
-- **Forensic keys (7):**
-  - `tier`: 1
-  - `measured_2026_11_22_overnight`: URA DB memory_episodes music_follow_decision since 11-18: failed/ma 13 (11-21 17:52Z to 11-22 02:59Z), all reason ma:HomeAssistantError, path_reason 'ma src=media_player.kitchen_7(wiim_uuid_match) dst=..._7(wiim_uuid_match)' (twin resolu...
-  - `mechanism_2026_11_22`: music_following.py:2853 _resolve_path picks PATH_MA when an MA candidate entity's state is playing (:2860-2863). The MA entity mirrors the WiiM's own state, so AirPlay playback reads 'playing' with app_id airplay and active_queue null; t...
-  - `gate_2026_11_22_overnight`: Validity STILL-REAL (13/13 failures, mechanism read in source + recorder + MA log). Config-first: none (MF_MA_FIRST_ENABLED=False would drop MA for real MA queues too). Prior art: REUSE _resolve_path + _non_transferable + source_not_tran...
-  - `gate_2026_11_25_overnight`: Validity STILL-REAL: memory_episodes music_follow_decision since 11-22: failed/ma ma:HomeAssistantError 21 more (34 total since 11-21), ok 0. Prior art REUSE _non_transferable gate (music_following.py:249-266, outcome source_not_transfer...
-  - `review_2026_11_26_overnight`: Tier-1 review (ura-reviewer, framing A) on combo/overnight-1125 715018364: SHIP, 0 CRIT/HIGH/MED. The gate runs before any side effect on the automatic path (music_following.py:2631, before reversal-watch cancel / preferences / _transfer...
-  - `residual_lowA1_2026_11_26`: Review LOW A-L1 (predates this fix): manual_transfer (music_following.py:3814-3838) never calls _non_transferable, so a MANUAL move of AirPlay/TV/line-in still ducks the source and sends a URI the target cannot play. Automatic moves are ...
-
-### `PRESENCE-FAN-RECHECK-RELOAD-SUPPRESS-1` - Fan-check timing knobs read live but missing from reload-suppress set — _#2 · WSJF 5.0 · v2 tc1 u2 /e1_
-thread: **platform** - status: **in_progress**
-_created 2026-11-11 13:30 · updated 2026-11-26 02:06_
-- **Why:** Every Presence step save reloads the house coordinators unnecessarily.
-- **Next:** Me: verify the branch (base, per-key live-read evidence, drill), Tier-1 review, full-suite name-diff, move to review for the next attended batched release.
-- **Forensic keys (6):**
-  - `tier`: 1
-  - `adjacency`: Swept with the audit; NEW.
-  - `verified_2026_11_16_overnight`: STILL-REAL: OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py ~7090-7813) contains none of fan_recheck_arm_delay_s / spindown_s / window_s / cooldown_s / max_per_hour (const.py:906-931). Not built overnight: it touches the reload-suppression pri...
-  - `gate_2026_11_25_overnight`: Validity STILL-REAL: OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:7641) has none of the CONF_FAN_RECHECK_* keys. Prior art REUSE: the suppression primitive + existing zero-reload test pattern; FanRecheckManager._timing_config re-reads 8 tim...
-  - `review_2026_11_26_overnight`: Tier-1 review (ura-reviewer, framing A) on combo/overnight-1125 715018364: SHIP, 0 CRIT/HIGH/MED. Verified all 8 keys read live via _timing_config at use time (presence_fan_recheck.py:1293; consumers :537/:588/:661/:735/:812/:994/:1086);...
-  - `residual_lowA2_2026_11_26`: Review LOW A-L2 (predates this fix): fan_recheck_enabled, the master switch saved on the same Presence step and already pushed live into hass.data (config_flow.py:5213), is not in the suppress set, so toggling it alone still reloads the ...
-
-### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
 _created 2026-11-01 · updated 2026-11-05 02:40_
 - **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
@@ -624,7 +593,7 @@ _created 2026-11-01 · updated 2026-11-05 02:40_
   - `tier`: 2
   - `eval_round_2026_11_07`: Operator-funded iteration ($50 cap, spent $40.31; worktree agent-a657e58090fb1df32 commits e1b08b13 b0d29379 12ac1780; ITERATIONS_2026_11_07.md, LEDGER_2026_11_07.md, RUBRIC.md). NOT PASSING: Sonnet 5.5 3/15 runs, 0 cases by majority; he...
 
-### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-SUITE-PARALLEL-1` - Full test suite takes 24-33 min single-core; parallel run fails 91 vs 18 from test-order pollution — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **process** - status: **in_progress** - approval: **unreviewed**
 _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
 - **Why:** Gate runs ~20.6k tests serially on 1 of 8 cores, twice per release (base + candidate), with 67 source-mutation drills (~4 min). Probe 2026-11-10 on develop 9894bc66: serial 33 min / 18 failed; -n 6 --dist loadfile 19 min / 91 failed, 76 ...
@@ -634,7 +603,7 @@ _created 2026-11-10 19:20 · updated 2026-11-11 07:05 · initial_
   - `tier`: 1
   - `residual_2026_11_11`: Merged to develop 4d5385d4 (v5.108.8). Merged-develop parallel run: 11 failed in 3 min, base serial failures all gone, but 11 parallel-only (pass alone 72/72): test_arrester_operator_immunity x6, test_dp_drain_target_value_stamp x5 (file...
 
-### `PERSON-PROFILE-PREFERENCES-1` - Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene — _#5 · WSJF 2.0 · v4 tc2 u2 /e4_
+### `PERSON-PROFILE-PREFERENCES-1` - Per-person profile for identified household members: their bedroom(s)/bathroom, room ownership (incl. shared owners e.g. master), playlist, opt-in/out of automated arrival actions, welcome scene — _#3 · WSJF 2.0 · v4 tc2 u2 /e4_
 thread: **identity** - status: **in_progress**
 _created 2026-11-08 20:30 · updated 2026-11-12 17:01_
 - **Why:** 6.0.0 consumers (arrival/departure keyed to person_id, guest gate) need to know what a known person's arrival should DO. Today nothing records which rooms belong to whom or a person's preferences, so person-keyed actions have no target.
@@ -664,21 +633,7 @@ _created 2026-11-08 20:30 · updated 2026-11-12 17:01_
   - `adjacency_2026_11_08`: Grepped const.py for owner/pref/bedroom CONF keys (none) and the board for person preference/room owner (none; 'owner' hits are entity/cover ownership, a different concept). Planning docs to read in the pre-plan: known_person_annotation,...
   - `scope_add_2026_11_12_arrival_music`: Operator: add arrival-triggered music to this card. Today music_following.py:549 only logs on SIGNAL_PERSON_ARRIVING (arrival-start never built). Scope: on a confirmed arrival of an identified person, start their profile playlist in thei...
 
-### `EC-PREONSET-REASON-NARRATION-1` - Battery strategy reason calls the storm pre-onset floor the solar drain target ("SOC 21% <= target 50% (target excellent)") — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **in_progress**
-_created 2026-11-25 23:55 · updated 2026-11-26 02:07 · initial_
-- **Problem / Solution:**
-  - Problem: on 11-25 a Freeze Warning (onset 03:00, unconfirmed by forecast, low 37F) set the pre-onset floor to 50 (lower floor = max(reserve 10, partial_hold_reserve_floor default 50), inclement.py:1353) from 23:00. The reason attribute r...
-  - Mechanism: energy_battery.py:7348 raises drain_target = max(drain_target, _tick_reserve_floor) and the hold narration at :7393 prints that raised value labelled with the solar class; :7746 then appends '+ pre-onset floor'.
-  - Fix (narration only, no behaviour change): keep the base solar target in its own variable for the reason string; when the tick floor exceeds it, narrate 'drain target 10% (excellent); storm floor 50% (Freeze Warning) holds reserve'. Same...
-- **Next:** Me: verify the builder's branch (base, diff, reason-text readers, drill), Tier-1 review, full-suite name-diff, move to review for the next attended batched release.
-- **Forensic keys (4):**
-  - `tier`: 1
-  - `sibling_dashboard_fix_2026_11_25`: URA v8 Energy > Storm Watch hero card showed 'All clear / no alerts' because it read only inclement_state (none until onset) and active_alert_event. Patched live 23:5x: shows 'Preparing'/'Alert ahead' in orange plus '<event> starts <time...
-  - `swept_against`: kanban (pre-onset floor / narration grep: none), CF-1 narration comments in energy_battery.py
-  - `gate_2026_11_26_overnight`: Validity STILL-REAL: develop energy_battery.py:7347-7348 still raises drain_target = max(drain_target, _tick_reserve_floor) and the hold (~:7393) / drain (~:7372) narrations print that raised value with the solar-class label; :7746 appen...
-
-### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#7 · WSJF 1.9 · v9 tc4 u2 /e8_
+### `VISION-CROSSING-ANALYSIS-1` - AI vision of each crossing (fast 3-frame sample + batched time-lapse along the camera chain) as a counting and description input, fused with Frigate/Protect counts — _#4 · WSJF 1.9 · v9 tc4 u2 /e8_
 thread: **identity** - status: **in_progress**
 _created 2026-11-12 22:00 · updated 2026-11-17 02:07_
 - **Origin:** 2026-11-12 - Operator: watch arrivals with AI vision; time-lapse; fast first frames; counting is easy, naming is hard; guests are the census problem; OpenAI models (GPT-6 Luna/Sol); deconflict with camera counts until trusted (100 crossi...
@@ -727,10 +682,60 @@ _created 2026-11-12 22:00 · updated 2026-11-17 02:07_
   - `operator_2026_11_14_default_on`: Should be on by default if there are cameras in the house. => Vision Assisted Census switch defaults ON when the install has at least one camera (registry: any camera entity from a camera integration), OFF otherwise; a stored off still w...
   - `operator_2026_11_14_v6`: It feels like the last ship of this arc should move to v6.x? This is a major arc. And its going to lead to OC and personalization and Ai enhancements for rooms. / Btw we don't need to be so conservative on shipping this live as soon as t...
 
-## 🔍 Review (0)
+## 🔍 Review (3)
 _under review_
 
-_(none)_
+### `MF-MA-PATH-NON-MA-SOURCE-1` - Music following sends every WiiM move down the Music Assistant path even when the music is AirPlay, so all 13 moves since 11-21 failed — _#1 · WSJF 7.0 · v7 tc5 u2 /e2_
+thread: **music** - status: **review**
+_created 2026-11-22 02:05 · updated 2026-11-26 02:42 · refined_
+- **Problem / Solution:**
+  - Problem: when someone plays music to a WiiM speaker over AirPlay and walks to another room, URA tries to move it with Music Assistant, but Music Assistant has nothing queued (the music never went through it), so the move fails every time...
+- **Origin:** 2026-11-22 - Found by the overnight soak-exit disposition of MUSIC-FOLLOWING-TRANSFER-REPAIR-1 (ura-prober + orchestrator recorder read).
+- **Why:** Music following is operator mission-critical (ships ON, must work day 1). AirPlay to WiiM appears to be the household's normal way to play, so the MA path as wired fails on the common case.
+- **Next:** Me, next attended batched release: merge fix/mf-airplay-not-transferable (+ the lower-case review-LOW commit 9923d3b1e on combo) and deploy via deploy.sh --cards. Live check: the next AirPlay move logs music_follow_decision outcome sourc...
+- **Parsimony:** [BUILD] With AirPlay playing on a WiiM source, _resolve_path returns PATH_MA and transfer_queue fails 100% of the time.
+- **Refs:** docs/readmes/README_v5.108.35.md
+- **Forensic keys (8):**
+  - `tier`: 1
+  - `measured_2026_11_22_overnight`: URA DB memory_episodes music_follow_decision since 11-18: failed/ma 13 (11-21 17:52Z to 11-22 02:59Z), all reason ma:HomeAssistantError, path_reason 'ma src=media_player.kitchen_7(wiim_uuid_match) dst=..._7(wiim_uuid_match)' (twin resolu...
+  - `mechanism_2026_11_22`: music_following.py:2853 _resolve_path picks PATH_MA when an MA candidate entity's state is playing (:2860-2863). The MA entity mirrors the WiiM's own state, so AirPlay playback reads 'playing' with app_id airplay and active_queue null; t...
+  - `gate_2026_11_22_overnight`: Validity STILL-REAL (13/13 failures, mechanism read in source + recorder + MA log). Config-first: none (MF_MA_FIRST_ENABLED=False would drop MA for real MA queues too). Prior art: REUSE _resolve_path + _non_transferable + source_not_tran...
+  - `gate_2026_11_25_overnight`: Validity STILL-REAL: memory_episodes music_follow_decision since 11-22: failed/ma ma:HomeAssistantError 21 more (34 total since 11-21), ok 0. Prior art REUSE _non_transferable gate (music_following.py:249-266, outcome source_not_transfer...
+  - `review_2026_11_26_overnight`: Tier-1 review (ura-reviewer, framing A) on combo/overnight-1125 715018364: SHIP, 0 CRIT/HIGH/MED. The gate runs before any side effect on the automatic path (music_following.py:2631, before reversal-watch cancel / preferences / _transfer...
+  - `residual_lowA1_2026_11_26`: Review LOW A-L1 (predates this fix): manual_transfer (music_following.py:3814-3838) never calls _non_transferable, so a MANUAL move of AirPlay/TV/line-in still ducks the source and sends a URI the target cannot play. Automatic moves are ...
+  - `validated_2026_11_26_overnight`: Full-suite name-diff 11-26 02:30-02:42 (scripts/suite_namediff.py, baseline develop bd558132e cached = 23864 passed / 0 failed): candidate combo/overnight-1126 66d3d16df = develop + fix/fan-recheck-reload-suppress 0f7c30c80 + fix/mf-airp...
+
+### `PRESENCE-FAN-RECHECK-RELOAD-SUPPRESS-1` - Fan-check timing knobs read live but missing from reload-suppress set — _#2 · WSJF 5.0 · v2 tc1 u2 /e1_
+thread: **platform** - status: **review**
+_created 2026-11-11 13:30 · updated 2026-11-26 02:42_
+- **Why:** Every Presence step save reloads the house coordinators unnecessarily.
+- **Next:** Me, next attended batched release: merge fix/fan-recheck-reload-suppress (0f7c30c80) with the combo, README from docs/readmes/drafts/PRESENCE-FAN-RECHECK-RELOAD-SUPPRESS-1.md, deploy via deploy.sh --cards. Live check after restart: save ...
+- **Forensic keys (8):**
+  - `tier`: 1
+  - `adjacency`: Swept with the audit; NEW.
+  - `verified_2026_11_16_overnight`: STILL-REAL: OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py ~7090-7813) contains none of fan_recheck_arm_delay_s / spindown_s / window_s / cooldown_s / max_per_hour (const.py:906-931). Not built overnight: it touches the reload-suppression pri...
+  - `gate_2026_11_25_overnight`: Validity STILL-REAL: OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:7641) has none of the CONF_FAN_RECHECK_* keys. Prior art REUSE: the suppression primitive + existing zero-reload test pattern; FanRecheckManager._timing_config re-reads 8 tim...
+  - `review_2026_11_26_overnight`: Tier-1 review (ura-reviewer, framing A) on combo/overnight-1125 715018364: SHIP, 0 CRIT/HIGH/MED. Verified all 8 keys read live via _timing_config at use time (presence_fan_recheck.py:1293; consumers :537/:588/:661/:735/:812/:994/:1086);...
+  - `residual_lowA2_2026_11_26`: Review LOW A-L2 (predates this fix): fan_recheck_enabled, the master switch saved on the same Presence step and already pushed live into hass.data (config_flow.py:5213), is not in the suppress set, so toggling it alone still reloads the ...
+  - `suite_fix_2026_11_26_overnight`: First full-suite run (11-26 02:01-02:27, candidate 715018364) had 11 NEW failures, all this card's: 10 in test_fan_recheck_reload_suppress.py (module-level `import custom_components.universal_room_automation as pkg` caught a package stub...
+  - `validated_2026_11_26_overnight`: Full-suite name-diff 11-26 02:30-02:42 (scripts/suite_namediff.py, baseline develop bd558132e cached = 23864 passed / 0 failed): candidate combo/overnight-1126 66d3d16df = develop + fix/fan-recheck-reload-suppress 0f7c30c80 + fix/mf-airp...
+
+### `EC-PREONSET-REASON-NARRATION-1` - Battery strategy reason calls the storm pre-onset floor the solar drain target ("SOC 21% <= target 50% (target excellent)") — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **review**
+_created 2026-11-25 23:55 · updated 2026-11-26 02:42 · initial_
+- **Problem / Solution:**
+  - Problem: on 11-25 a Freeze Warning (onset 03:00, unconfirmed by forecast, low 37F) set the pre-onset floor to 50 (lower floor = max(reserve 10, partial_hold_reserve_floor default 50), inclement.py:1353) from 23:00. The reason attribute r...
+  - Mechanism: energy_battery.py:7348 raises drain_target = max(drain_target, _tick_reserve_floor) and the hold narration at :7393 prints that raised value labelled with the solar class; :7746 then appends '+ pre-onset floor'.
+  - Fix (narration only, no behaviour change): keep the base solar target in its own variable for the reason string; when the tick floor exceeds it, narrate 'drain target 10% (excellent); storm floor 50% (Freeze Warning) holds reserve'. Same...
+- **Next:** Me, next attended batched release: merge fix/ec-preonset-reason-narration and deploy via deploy.sh --cards (README from docs/readmes/drafts/EC-PREONSET-REASON-NARRATION-1.md). Live check: next pre-onset floor above the drain target reads...
+- **Forensic keys (7):**
+  - `tier`: 1
+  - `sibling_dashboard_fix_2026_11_25`: URA v8 Energy > Storm Watch hero card showed 'All clear / no alerts' because it read only inclement_state (none until onset) and active_alert_event. Patched live 23:5x: shows 'Preparing'/'Alert ahead' in orange plus '<event> starts <time...
+  - `swept_against`: kanban (pre-onset floor / narration grep: none), CF-1 narration comments in energy_battery.py
+  - `gate_2026_11_26_overnight`: Validity STILL-REAL: develop energy_battery.py:7347-7348 still raises drain_target = max(drain_target, _tick_reserve_floor) and the hold (~:7393) / drain (~:7372) narrations print that raised value with the solar-class label; :7746 appen...
+  - `build_2026_11_26_overnight`: Built (ura-builder, isolated worktree) on fix/ec-preonset-reason-narration 1146d07c1, base = develop. Orchestrator verify: decisions untouched (_base_drain_target only feeds the reason), no-floor text byte-identical (else-branch = old st...
+  - `review_2026_11_26_overnight`: Tier-1 review (ura-reviewer A): SHIP, 0 CRIT/HIGH/MED. LOW A1: the skipped '+ pre-onset floor' suffix equals the narrated floor on both legs, no information lost. LOW A2 (optional wording): 'storm floor' also covers Freeze Warning / cond...
+  - `validated_2026_11_26_overnight`: Full-suite name-diff 11-26 02:30-02:42 (scripts/suite_namediff.py, baseline develop bd558132e cached = 23864 passed / 0 failed): candidate combo/overnight-1126 66d3d16df = develop + fix/fan-recheck-reload-suppress 0f7c30c80 + fix/mf-airp...
 
 ## ⏸️ Waiting on operator (42)
 _needs a human call — groomed first_

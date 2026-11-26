@@ -136,3 +136,6 @@ Trying to size URA's share inside Core, the Profiler's object-source scan double
 
 
 **2026-11-25 evening, a 50% reserve that looked like a drain target.** Oji asked why URA set the drain target to 50%. It was the storm module's floor for a Freeze Warning starting at 03:00; the forecast didn't confirm a freeze, so it held the battery without buying grid power, as the storm doctrine says. The dashboard called it "All clear" and the reason text called it the solar target. The card was fixed live; the wording fix waits for the next attended restart → [356](users/ojiudezue/entries/356_storm_floor_dashboard_and_narration.json).
+
+
+**2026-11-26 overnight, a smoke detector that came back but stayed invisible.** The kitchen smoke detector was re-paired at 00:20 under new names, so Home Assistant sees it again, but URA's Safety list still points at the deleted old entity. I paged rather than edit settings in a sleeping house. Core memory also jumped about 1.5 GB at 14:50 yesterday and stayed there; I measured it and left the cause open rather than guess. And last night's fan-check tests passed alone but failed in the full run because an earlier test left a stub behind; fixed in the tests and proven by order → [357](users/ojiudezue/entries/357_overnight_1126_smoke_list_memory_step_test_order.json).
