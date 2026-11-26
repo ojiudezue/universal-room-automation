@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-25T07:36:38-06:00_ - _Data commit: `900c08f37578`_ - _last_reconciled: 2026-11-25_
+_Generated: 2026-11-25T23:50:16-06:00_ - _Data commit: `2d4bf1a7e99b`_ - _last_reconciled: 2026-11-25_
 
 
 ## Columns
@@ -10,12 +10,12 @@ _Generated: 2026-11-25T07:36:38-06:00_ - _Data commit: `900c08f37578`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 24 |
 | 🔨 In progress | 6 |
 | 🔍 Review | 0 |
-| ⏸️ Waiting on operator | 41 |
+| ⏸️ Waiting on operator | 42 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 9 |
 | 🅿️ Parked | 156 |
@@ -26,27 +26,10 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (0)
 _measuring; truth not yet known_
 
-### `HA-CORE-MEMORY-GROWTH-1` - HA NUC memory is ~87% with swap full: find what grew (Core 5.0 GB) before blaming URA or anything else — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **platform** - status: **investigating** - approval: **implied**
-_created 2026-11-24 22:27 · updated 2026-11-25 07:36 · initial_
-- **Problem / Solution:**
-  - Problem: the HA NUC is at about 87% memory with swap 100% full, and Home Assistant Core alone is 5.0 GB. Host memory stepped up about 10 points late on 11-13 and has stayed higher across every restart since, and it also creeps up between...
-- **Origin:** 2026-11-24 - Operator relayed the homelab session's Beszel vs status-page finding: Core 4.9 GB, swap full. Operator: 'Make sure its not URA and something we shipped. be precise and don't jump to conclusions.' Also: 'We have our HA health...
-- **Next:** Me: no in-process heap profiling on this host. Remaining evidence path is Beszel per-container history: compare Core's daily peaks over the next week (flat 4.9-5.0 GB so far). Homelab owns voice_incubator (~0.9-1.1 GB, the 11-13 step) an...
-- **Tags:** measure-before-build, no-fabrication-verify, audit-first
-- **Refs:** ~/Code/ha-health-monitor (installed v2.4.0 gcfreeze.py); docs/planning/RUNBOOK_recorder_excludes.md:38; docs/readmes/README_v5.108.21.md
-- **Forensic keys (8):**
-  - `tier`: 1
-  - `evidence_2026_11_24`: Measured 18:22-19:30 CST. (1) Host (ssh ha free -m): 10206/11746 MB used, 1540 available, swap 3876/3877 MB. (2) Core (ha core stats via Supervisor token): memory_usage 5,029,507,072 B, 40.83% of limit; Core boot 11-22 21:46 (v5.108.39 r...
-  - `beszel_2026_11_24`: Beszel hub container_stats (read-only, ura-prober, system b7q012hnwk73dgu). STEP 11-13/14 = ADD-ON, NOT CORE, NOT URA: app_f85239b4_voice_incubator absent through the 480m bucket ending 11-13 16:40, 139 MB avg in the bucket ending 11-14 ...
-  - `retracted_2026_11_24`: My earlier 'host creeps ~30 MB/h between restarts, possibly a leak' framing was host-level and is not supported for Core: Core's own peaks are flat 11-21..11-24 in Beszel. URA's v5.108.21 restart is not the step (voice_incubator started ...
-  - `incident_2026_11_24_profiler_oom`: MY ACTION CRASHED HA. 22:40-22:41 CST, after the v5.108.40 restart (Core 2.85 GB at boot): turned hahm gc_freeze off, ran profiler.start_log_objects (one growth census logged OK, then stopped), then profiler.start_log_object_sources (sca...
-  - `voice_stopped_2026_11_24`: Operator: 'Stop the voice add ons.' 23:04 CST stopped f85239b4_voice_incubator, core_whisper (both exit 137 on forced stop, state 'error' = not running), core_piper (stopped). All three still boot=auto, so they return on the next host re...
-  - `overnight_2026_11_25`: 02:00-02:11 CST read-only (ssh ha free -m + ha_get_app installed stats): host used 6853/11746 MB, available 4892 MB, swap 1315/3877 MB (vs 23:05: used 6.6 GB, avail 5.1 GB, swap 1.2 GB). The three voice add-ons are still not running (voi...
-  - `hm_v2_4_1_2026_11_25`: Health Monitor core_mem gap fixed in its repo (operator: 'Issue the fix in that repo and build and push'; picked the direct call over enabling the Supervisor sensors). ha-health-monitor branch v2.4.1-core-stats 8b0d3e1, pushed to GitHub ...
+_(none)_
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_
@@ -614,7 +597,7 @@ _being built_
 
 ### `MF-MA-PATH-NON-MA-SOURCE-1` - Music following sends every WiiM move down the Music Assistant path even when the music is AirPlay, so all 13 moves since 11-21 failed — _#1 · WSJF 7.0 · v7 tc5 u2 /e2_
 thread: **music** - status: **in_progress**
-_created 2026-11-22 02:05 · updated 2026-11-25 02:11 · refined_
+_created 2026-11-22 02:05 · updated 2026-11-26 02:06 · refined_
 - **Problem / Solution:**
   - Problem: when someone plays music to a WiiM speaker over AirPlay and walks to another room, URA tries to move it with Music Assistant, but Music Assistant has nothing queued (the music never went through it), so the move fails every time...
 - **Origin:** 2026-11-22 - Found by the overnight soak-exit disposition of MUSIC-FOLLOWING-TRANSFER-REPAIR-1 (ura-prober + orchestrator recorder read).
@@ -622,23 +605,27 @@ _created 2026-11-22 02:05 · updated 2026-11-25 02:11 · refined_
 - **Next:** Me: verify the builder's branch (base, diff, drill), one Tier-1 review, full-suite name-diff, then move to review for the next attended batched release. Parked alt: linkplay join for AirPlay after the attended live test.
 - **Parsimony:** [BUILD] With AirPlay playing on a WiiM source, _resolve_path returns PATH_MA and transfer_queue fails 100% of the time.
 - **Refs:** docs/readmes/README_v5.108.35.md
-- **Forensic keys (5):**
+- **Forensic keys (7):**
   - `tier`: 1
   - `measured_2026_11_22_overnight`: URA DB memory_episodes music_follow_decision since 11-18: failed/ma 13 (11-21 17:52Z to 11-22 02:59Z), all reason ma:HomeAssistantError, path_reason 'ma src=media_player.kitchen_7(wiim_uuid_match) dst=..._7(wiim_uuid_match)' (twin resolu...
   - `mechanism_2026_11_22`: music_following.py:2853 _resolve_path picks PATH_MA when an MA candidate entity's state is playing (:2860-2863). The MA entity mirrors the WiiM's own state, so AirPlay playback reads 'playing' with app_id airplay and active_queue null; t...
   - `gate_2026_11_22_overnight`: Validity STILL-REAL (13/13 failures, mechanism read in source + recorder + MA log). Config-first: none (MF_MA_FIRST_ENABLED=False would drop MA for real MA queues too). Prior art: REUSE _resolve_path + _non_transferable + source_not_tran...
   - `gate_2026_11_25_overnight`: Validity STILL-REAL: memory_episodes music_follow_decision since 11-22: failed/ma ma:HomeAssistantError 21 more (34 total since 11-21), ok 0. Prior art REUSE _non_transferable gate (music_following.py:249-266, outcome source_not_transfer...
+  - `review_2026_11_26_overnight`: Tier-1 review (ura-reviewer, framing A) on combo/overnight-1125 715018364: SHIP, 0 CRIT/HIGH/MED. The gate runs before any side effect on the automatic path (music_following.py:2631, before reversal-watch cancel / preferences / _transfer...
+  - `residual_lowA1_2026_11_26`: Review LOW A-L1 (predates this fix): manual_transfer (music_following.py:3814-3838) never calls _non_transferable, so a MANUAL move of AirPlay/TV/line-in still ducks the source and sends a URI the target cannot play. Automatic moves are ...
 
 ### `PRESENCE-FAN-RECHECK-RELOAD-SUPPRESS-1` - Fan-check timing knobs read live but missing from reload-suppress set — _#2 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **platform** - status: **in_progress**
-_created 2026-11-11 13:30 · updated 2026-11-25 02:11_
+_created 2026-11-11 13:30 · updated 2026-11-26 02:06_
 - **Why:** Every Presence step save reloads the house coordinators unnecessarily.
 - **Next:** Me: verify the branch (base, per-key live-read evidence, drill), Tier-1 review, full-suite name-diff, move to review for the next attended batched release.
-- **Forensic keys (4):**
+- **Forensic keys (6):**
   - `tier`: 1
   - `adjacency`: Swept with the audit; NEW.
   - `verified_2026_11_16_overnight`: STILL-REAL: OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py ~7090-7813) contains none of fan_recheck_arm_delay_s / spindown_s / window_s / cooldown_s / max_per_hour (const.py:906-931). Not built overnight: it touches the reload-suppression pri...
   - `gate_2026_11_25_overnight`: Validity STILL-REAL: OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:7641) has none of the CONF_FAN_RECHECK_* keys. Prior art REUSE: the suppression primitive + existing zero-reload test pattern; FanRecheckManager._timing_config re-reads 8 tim...
+  - `review_2026_11_26_overnight`: Tier-1 review (ura-reviewer, framing A) on combo/overnight-1125 715018364: SHIP, 0 CRIT/HIGH/MED. Verified all 8 keys read live via _timing_config at use time (presence_fan_recheck.py:1293; consumers :537/:588/:661/:735/:812/:994/:1086);...
+  - `residual_lowA2_2026_11_26`: Review LOW A-L2 (predates this fix): fan_recheck_enabled, the master switch saved on the same Presence step and already pushed live into hass.data (config_flow.py:5213), is not in the suppress set, so toggling it alone still reloads the ...
 
 ### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
@@ -744,7 +731,7 @@ _under review_
 
 _(none)_
 
-## ⏸️ Waiting on operator (41)
+## ⏸️ Waiting on operator (42)
 _needs a human call — groomed first_
 
 ### `CENSUS-DECONFLICTION-LEDGER-1` - Core census: one dedup function (deconflict_house), the crossing ledger with its empty-house anchor, the awareness view and Vision Assisted Census switch (ships dark, trust view unchanged) — _#1 · WSJF 16.0 · v8 tc6 u2 /e1_
@@ -871,14 +858,14 @@ _created 2026-09-16 03:30 · updated 2026-11-12 13:20 · refined_
 
 ### `SAFETY-SENSOR-FLEET-HEALTH-1` - The house's only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards — _#5 · WSJF 9.5 · v9 tc8 u2 /e2_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-10-16 02:20 · updated 2026-11-25 02:11 · initial_
+_created 2026-10-16 02:20 · updated 2026-11-26 02:05 · initial_
 - **Problem / Solution:**
   - Problem: URA's Safety coordinator can only react to detectors Home Assistant can read. Tonight the only real smoke detector (the Heiman in the kitchen) reads 'unavailable' and has since the 10-15 12:46 restart; four Zigbee leak sensors n...
 - **Origin:** 2026-10-16 - Overnight pass: found by the ura-planner measurement for SAFETY-NO-INITIAL-SENSOR-PASS-1 (plan section 6/9); smoke state re-read live by the orchestrator.
 - **Why:** Life-safety coverage gap while the family is away and a guest is home. Config/device actions, no code needed first (config-first).
-- **Next:** DO (when back, or the guest/Jaya if urgent): re-pair the kitchen Heiman smoke detector (homelab THREAD-INOVELLI-1 re-commission; it still sounds locally), and check the 4 leak pucks' batteries/pairing. APPROVE me to make the two config f...
+- **Next:** DO (1 min, attended): URA -> Coordinator Manager options -> Safety: replace binary_sensor.smoke_sensor_s1_smoke (deleted at your 11-26 00:20 re-pair) with binary_sensor.kitchen_smoke_heiman_matter_kitchen_smoke, and move binary_sensor.ga...
 - **Tags:** found-during-probe, no-fabrication-verify, life-safety
-- **Forensic keys (31):**
+- **Forensic keys (33):**
   - `recheck_2026_11_24_overnight`: STILL-REAL (ha_get_state 02:08 CST): binary_sensor.smoke_sensor_s1_smoke unavailable; last_changed 11-22 21:47 is the restart. Re-pair DO stands.
   - `recheck_2026_11_22_overnight`: STILL-REAL (ha_get_state 02:01 CST): binary_sensor.smoke_sensor_s1_smoke unavailable, last_changed 11-20 22:47 = the restart. DO stands.
   - `recheck_2026_11_20_overnight`: STILL-WAITING (02:06 CST live): binary_sensor.smoke_sensor_s1_smoke and every smoke_sensor_s1_* / kitchen_smoke_heiman_* entity still unavailable; the kitchen Heiman re-pair is still owed. Card unchanged.
@@ -910,13 +897,15 @@ _created 2026-10-16 02:20 · updated 2026-11-25 02:11 · initial_
   - `recheck_2026_11_19_overnight`: STILL-REAL: binary_sensor.smoke_sensor_s1_smoke unavailable for the whole last 30 h (recorder summary: 0 changes); last_changed 11-18 23:03 (an HA-side reset, still unavailable). Re-pair DO stands.
   - `recheck_2026_11_21_overnight`: STILL-REAL (ha_get_state 02:02 CST): binary_sensor.smoke_sensor_s1_smoke unavailable; last_changed 11-20 22:47 is the HA restart (v5.108.38 still installed), not a recovery. Re-pair DO stands.
   - `recheck_2026_11_25_overnight`: STILL-REAL (ha_get_state 02:00-02:11 CST): binary_sensor.smoke_sensor_s1_smoke unavailable; last_changed 11-24 23:28 is the 23:26-23:30 HA restart, not a recovery. Re-pair DO stands.
+  - `recheck_2026_11_26_overnight`: PARTIALLY-DONE + CARD-NOW-WRONG-ON-CONFIG (02:05-02:10 CST, read-only: recorder home-assistant_v2.db + /config/.storage core.entity_registry + core.config_entries). The kitchen Heiman WAS re-paired: a new Matter device (device 02788adb.....
+  - `paged_2026_11_26_overnight`: Paged in the consolidated overnight notification (see autonomy_feed).
 
 ### `LANDSCAPE-RETRY-POSTFIX-CHECK-1` - Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline — _#6 · WSJF 8.0 · v3 tc3 u2 /e1_
 thread: **lighting** - status: **waiting_operator**
-_created 2026-10-14 02:10 · updated 2026-11-22 02:02_
+_created 2026-10-14 02:10 · updated 2026-11-26 02:05_
 - **Why:** Kept Matter automation (62 drops/10d vs 398 native), added repeat-until-on retry (<=5), removed 8 dead entities, turned off duplicate native automation; 82 dead/duplicate light entities disabled_by user. No post-fix measurement yet.
 - **Next:** APPROVE: let me add continue_on_error: true to the first step of automation.landscape_lighting_lifx_matter_version (the Dewenwils transformer switch.turn_on). Re-read 10-28: that step still has no continue_on_error; the retry loops alrea...
-- **Forensic keys (12):**
+- **Forensic keys (13):**
   - `recheck_2026_11_22_overnight`: STILL-REAL: /config/automations.yaml id 1753410739607 has 2 continue_on_error lines (the two retry repeats), none on the first switch.turn_on. APPROVE stands.
   - `recheck_2026_11_18_overnight`: 02:01 CST /config/automations.yaml (id 1753410739607, file mtime 11-13 21:49): first lights_on switch.turn_on of the 6 Dewenwils switches still has no continue_on_error. APPROVE stands.
   - `recheck_2026_11_07_overnight`: Re-read 02:03 CST (ha_config_get_automation, config_hash 0b20e85601b6b048): the first lights_on step (switch.turn_on on the 6 Dewenwils transformer switches) still has no continue_on_error; both retry loops do. Unchanged, ask stands.
@@ -929,17 +918,18 @@ _created 2026-10-14 02:10 · updated 2026-11-22 02:02_
   - `recheck_2026_10_25_overnight`: STILL-REAL: the GK landscape lights are still unavailable at 02:10 CDT (ha_search gklandscape: perimeter1/3/4/5/7, corner1/2, backdrivewayleft all unavailable). Both asks stand.
   - `recheck_2026_11_19_overnight`: STILL-REAL (ha_search config read): the lights_on branch's first step switch.turn_on (6 Dewenwils transformer switches) still has no continue_on_error; both retry repeats have it. APPROVE stands (HA automation write = attended only).
   - `recheck_2026_11_21_overnight`: STILL-REAL (ha_config_get_automation 02:02 CST, config_hash 0b20e85601b6b048): the lights_on branch's first step switch.turn_on (6 Dewenwils transformer switches) still has no continue_on_error; both retry repeats have it. APPROVE stands.
+  - `recheck_2026_11_26_overnight`: STILL-REAL (/config/automations.yaml id 1753410739607, 02:04 CST): the lights_on branch's first switch.turn_on (6 Dewenwils switches) still has no continue_on_error; the file has 9 continue_on_error lines overall, none on that step. APPR...
 
 ### `NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1` - Prove the text 'diag' menu answers on WhatsApp and the HA app (only iMessage is proven live) — _#7 · WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **notifications** - status: **waiting_operator** - approval: **implied**
-_created 2026-11-08 02:05 · updated 2026-11-25 02:11 · initial_
+_created 2026-11-08 02:05 · updated 2026-11-26 02:05 · initial_
 - **Problem / Solution:**
   - Problem: the house now answers text questions ('diag', 'health', 'who'), but it has only ever been seen working over iMessage. WhatsApp has never delivered a single inbound message to URA, so we do not know whether WhatsApp questions rea...
 - **Origin:** 2026-11-08 - overnight soak-exit of NM-INBOUND-HOUSE-QUERIES-1 found WhatsApp + Companion legs unprovable without an operator message
 - **Why:** Residual of a shipped capability (finish-the-arc rule 4 would fold it, but the parent closed and the remaining step needs an operator action, so it needs its own decision queue entry).
 - **Next:** DO: text 'diag' in your WhatsApp self-chat, and reply 'diag' to any URA notification in the HA app -> I read notification_inbound; a channel=whatsapp row and a companion row with a reply close this; no WhatsApp row means the bridge drops...
 - **Tags:** tier-1
-- **Forensic keys (16):**
+- **Forensic keys (17):**
   - `recheck_2026_11_24_overnight`: STILL-WAITING: notification_inbound since 11-22 has 20 rows, all channel imessage; no whatsapp or companion row.
   - `recheck_2026_11_22_overnight`: STILL-WAITING (ssh ha sqlite3 -readonly): notification_inbound = imessage 584 rows only (newest 11-22 06:43 UTC); zero whatsapp, zero companion. DO stands.
   - `recheck_2026_11_20_overnight`: STILL-WAITING (02:06 CST URA DB): notification_inbound since 11-18 has only channel=imessage (25 rows, last 05:57Z); no whatsapp or companion row, so the operator diag test has not been run. Card unchanged.
@@ -956,6 +946,7 @@ _created 2026-11-08 02:05 · updated 2026-11-25 02:11 · initial_
   - `recheck_2026_11_19_overnight`: STILL-WAITING (02:0x CST, ssh ha sqlite3 -readonly): notification_inbound holds only channel=imessage (482 rows, 10-20..11-19 06:28 UTC); zero whatsapp and zero companion rows ever. The DO (text diag in WhatsApp self-chat + reply diag in...
   - `recheck_2026_11_21_overnight`: STILL-WAITING (ssh ha sqlite3 -readonly, 02:02 CST): notification_inbound has only channel=imessage (568 rows, newest 11-21 05:18 UTC); zero whatsapp, zero companion. The DO stands.
   - `recheck_2026_11_25_overnight`: STILL-WAITING (ssh ha sqlite3 -readonly, 02:00-02:11 CST): notification_inbound has only channel=imessage (535 rows, newest 11-23 04:34Z); zero whatsapp, zero companion. DO stands.
+  - `recheck_2026_11_26_overnight`: STILL-WAITING (URA DB notification_inbound, 02:01 CST): only channel=imessage rows exist (526, last 11-23 04:34Z); no whatsapp or companion row ever. DO stands.
 
 ### `CAMERA-SEAM-VALIDATION-1` - Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams — _#8 · WSJF 6.5 · v6 tc3 u4 /e2_
 thread: **perimeter** - status: **waiting_operator**
@@ -1115,19 +1106,20 @@ _created 2026-10-05 02:22 · updated 2026-11-24 02:08 · initial_
 
 ### `INTERIOR-PATH-ZERO-1120-1` - Entries seen by the doorbell_lite camera (Garage A door) never get an interior path, because the path map has no inward edge from it, so the 'no path' alarm fires on days when only that camera sees entries — _#18 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **vision** - status: **waiting_operator**
-_created 2026-11-22 02:05 · updated 2026-11-25 02:11 · refined_
+_created 2026-11-22 02:05 · updated 2026-11-26 02:05 · refined_
 - **Problem / Solution:**
   - Problem: when someone comes in through Garage A and only the doorbell_lite camera over that door sees them, URA counts it as an entry on a mapped door but can never build the indoor path, because the path map only starts indoor paths fro...
 - **Origin:** 2026-11-22 - Residual of the overnight soak-exit disposition of VISION-INTERIOR-SHIP1-1.
 - **Why:** A producer that drops most entries caps every later consumer (census interior counts, F4 sightings).
 - **Next:** APPROVE (recommended A): A) I add one inward edge {from: camera.doorbell_lite, to: camera.garage_a_2, kind: inward} to /config/universal_room_automation/interior_paths.json in an attended session (backup first; the map revalidates live w...
-- **Forensic keys (6):**
+- **Forensic keys (7):**
   - `recheck_2026_11_24_overnight`: STILL-WAITING: interior_paths.json has camera.doorbell_lite only as a 'to' (2 hits), no inward edge from it.
   - `paged_2026_11_22_overnight`: Paged 02:27 CST in one consolidated quiet notification (notify.madronehapushover, priority -1).
   - `mechanism_2026_11_22_overnight`: CONFIRMED. Every interior_path row (20) comes from a garage_a_2-family or front-door egress source (sensor.garage_a_person_count, binary_sensor.garage_a_person_detected/_occupancy_2, front_door_aerial, madrone_g6_entry); 0 of ~30 doorbel...
   - `tier`: 1
   - `measured_2026_11_22_overnight`: notification_log 'Stuck signal: interior_path_zero' fired 11-16 19:02Z, 11-17 19:49Z (both before/at first path rows) and 11-21 01:06:58Z ('5 entries ... no path record'); memory_episodes interior_path = 20 rows total (19 with >=1 hop), ...
   - `recheck_2026_11_25_overnight`: STILL-WAITING (ssh ha read of interior_paths.json 02:00-02:11 CST, file mtime 11-13 01:49): camera.doorbell_lite appears only as the 'to' of the two approach edges (rear_ptz, g5_bullet); no inward edge from it. APPROVE stands.
+  - `recheck_2026_11_26_overnight`: STILL-WAITING: /config/universal_room_automation/interior_paths.json mtime still 2026-11-13 01:49, so the doorbell_lite -> garage_a_2 inward edge has not been added. APPROVE stands.
 
 ### `NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1` - Night lights already on when the house goes to Sleep stay warm white until someone re-enters the room — _#19 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **lighting** - status: **waiting_operator** - approval: **blocked**
@@ -1265,11 +1257,11 @@ _updated 2026-10-12 02:07_
 
 ### `PERIMETER-FP-GATES-DISPOSE-1` - Perimeter false-positive gates D3/D5 shipped shadow-first but D3 can never evaluate (zone sensors never configured) and no shadow counts are kept; no disposal date — _#27 · WSJF 2.8 · v5 tc3 u6 /e5 ⚠_
 thread: **perimeter** - status: **waiting_operator**
-_created 2026-11-12 22:55 · updated 2026-11-25 02:11_
+_created 2026-11-12 22:55 · updated 2026-11-26 02:05_
 - **Origin:** 2026-11-12 - Operator asked why the gates are off. AUDIT_garage_hallway_lock_and_perimeter_gates_2026_11_12.md.
 - **Why:** Off by design as shadow-first (README v5.107.0, PLANNING_perimeter_fp_build_2026_11.md), but gate_decisions_by_camera {} and zone_map {} live; D5 learning (g5_bullet clears bar); D5 settle 8 s shorter than most camera lag. 2,295 CRITICAL...
 - **Next:** DO: in URA options -> Perimeter, set perimeter_zone_sensors to the four Frigate property-zone person-occupancy sensors for g5_bullet, rear_ptz, utilities_ptz and front_side_ptz (ids in the audit, resolved by registry), and confirm Frigat...
-- **Forensic keys (17):**
+- **Forensic keys (18):**
   - `recheck_2026_11_24_overnight`: STILL-WAITING: no perimeter_zone_sensors key in any URA config entry.
   - `arc_cut_v5_108_39`: perimeter gate disposal waits on operator, independent of the transit coverage fix
   - `recheck_2026_11_22_overnight`: STILL-WAITING: ssh ha grep -c perimeter_zone_sensors /config/.storage/core.config_entries = 0. DO + PICK stand; dispose-by 2026-11-28.
@@ -1287,14 +1279,15 @@ _created 2026-11-12 22:55 · updated 2026-11-25 02:11_
   - `recheck_2026_11_19_overnight`: STILL-WAITING: .storage/core.config_entries (Samba mount mtime 01:25:40 = host mtime, not stale) has no perimeter_zone_sensors on any URA entry, data or options. D3 still cannot run. DO + PICK stand; dispose-by 2026-11-28.
   - `recheck_2026_11_21_overnight`: STILL-WAITING: ssh ha grep -c perimeter_zone_sensors /config/.storage/core.config_entries = 0 (read on the HA host directly; the Mac's Samba mount /Users/okosisi/ha-config is not mounted tonight). D3 still cannot run. DO + PICK stand; di...
   - `recheck_2026_11_25_overnight`: STILL-WAITING: no perimeter_zone_sensors key in any URA entry data/options (ssh ha read of /config/.storage/core.config_entries 02:00-02:11 CST; Mac Samba mount down tonight). D3 cannot run; dispose-by 11-28 stands.
+  - `recheck_2026_11_26_overnight`: STILL-WAITING (core.config_entries 02:04 CST): no perimeter_zone_sensors key in any URA entry; perimeter_single_source_demote still true. D3 still cannot run; its 11-28 dispose-by is 2 days out (parks if still unset then). DO/PICK stands.
 
 ### `WALLPANEL-URA-NOTIFY-1` - URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface) — _#28 · WSJF 2.8 · v6 tc6 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **pending**
-_created 2026-10-20 08:30 · updated 2026-11-25 02:11_
+_created 2026-10-20 08:30 · updated 2026-11-26 02:05_
 - **Origin:** 2026-10-20 - Operator: ponder how URA uses the wall panels (KS + bridge). HomeLab brief docs/wallpanel-capability-brief.md (homelab cd71444); HomeLab feedback ffa7d06; 10-20 correction: operator has NOT decided the HomeLab/URA panel spli...
 - **Why:** Facts (not approvals): proposed that URA owns light.wallpanel_{master,up_hallway,media_room,kitchen,entry}_led end to end (on/effect/off); effects solid/blink/pulse/alert/notify/cycle (no breathe); state unknown after bridge restart != o...
 - **Next:** DO: when convenient, turn on switch.ura_nm_panel_channel and run a test leak (plan steps 1-7) -> I confirm only the targeted panels lit and that the ack released them, then close Halo S1b. APPROVE S2 (NM drives room alert lights) separat...
-- **Forensic keys (22):**
+- **Forensic keys (23):**
   - `recheck_2026_11_24_overnight`: STILL-WAITING: switch.ura_nm_panel_channel off (last_changed 11-22 21:47, the restart).
   - `verified_2026_11_15_overnight`: STILL-WAITING: switch.ura_nm_panel_channel is off (last changed 11-14 22:02, the restart), so no panel test leak has run.
   - `recheck_2026_11_10_overnight`: 02:01 CST: switch.ura_nm_panel_channel still off. Ask stands.
@@ -1317,6 +1310,7 @@ _created 2026-10-20 08:30 · updated 2026-11-25 02:11_
   - `recheck_2026_11_09_overnight`: 02:03 CST: switch.ura_nm_panel_channel still off (since the 11-08 13:52 boot), so the panel test has not run. Ask stands.
   - `verified_2026_11_16_overnight`: STILL-WAITING (~02:02 CST): switch.ura_nm_panel_channel off since the 11-15 21:46 boot; panel test not run. Ask stands.
   - `recheck_2026_11_25_overnight`: STILL-WAITING (ha_get_state 02:00-02:11 CST): switch.ura_nm_panel_channel off (last_changed = 11-24 23:28 restart). Panel test not run.
+  - `recheck_2026_11_26_overnight`: STILL-WAITING (core.restore_state 02:04 CST): switch.ura_nm_panel_channel off (last_changed 11-25 05:28Z, the restart). DO stands.
 
 ### `NM-CAP-LEAVES-BURST-SIBLINGS-UNACKED-1` - When the home repeat cap stops a perimeter page, the other same-burst pages from other cameras stay unacknowledged and come back at the next restart — _#29 · WSJF 2.3 · v3 tc2 u2 /e3_
 thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
@@ -1388,24 +1382,45 @@ _created 2026-11-16 01:50 · updated 2026-11-25 02:11_
   - `soak_exit_2026_11_25_overnight`: PARTIAL, needs you. (1) Dewarp SHIPPED v5.108.32 as a per-still remap (interior_dewarp.py; counter interior_vision.py:816); README_v5.108.32 row 3 Partial PASS: groups_dewarp_capable = Foyer + Living Room. Fire check (URA DB memory_episo...
   - `residual_overlap_2026_11_25`: Foyer camera also sees the Living Room: draw a foyer-floor-only Frigate zone on the Foyer camera (show you the outline on a still first), restart Frigate while awake, then switch the URA interior record and ledger floor overlap to that z...
 
-### `ARRIVAL-ENGINE-S8-1` - Step 8 arrival engine: arrival music in your own room, welcome scene in your bedroom, departure pause (ships as option B) — _#35 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HA-CORE-MEMORY-GROWTH-1` - HA NUC memory is ~87% with swap full: find what grew (Core 5.0 GB) before blaming URA or anything else — _#35 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **platform** - status: **waiting_operator** - approval: **implied**
+_created 2026-11-24 22:27 · updated 2026-11-26 02:05 · initial_
+- **Problem / Solution:**
+  - Problem: the HA NUC is at about 87% memory with swap 100% full, and Home Assistant Core alone is 5.0 GB. Host memory stepped up about 10 points late on 11-13 and has stayed higher across every restart since, and it also creeps up between...
+- **Origin:** 2026-11-24 - Operator relayed the homelab session's Beszel vs status-page finding: Core 4.9 GB, swap full. Operator: 'Make sure its not URA and something we shipped. be precise and don't jump to conclusions.' Also: 'We have our HA health...
+- **Next:** PICK (attended): A (recommended) before the next restart, I read the HA error_log for 11-25 14:30-15:10 (the log tool was down overnight) and identify the Android 13 Chrome tablet(s) in the 'Connection lost' reconnect loop (wall panels a...
+- **Tags:** measure-before-build, no-fabrication-verify, audit-first
+- **Refs:** ~/Code/ha-health-monitor (installed v2.4.0 gcfreeze.py); docs/planning/RUNBOOK_recorder_excludes.md:38; docs/readmes/README_v5.108.21.md
+- **Forensic keys (9):**
+  - `tier`: 1
+  - `evidence_2026_11_24`: Measured 18:22-19:30 CST. (1) Host (ssh ha free -m): 10206/11746 MB used, 1540 available, swap 3876/3877 MB. (2) Core (ha core stats via Supervisor token): memory_usage 5,029,507,072 B, 40.83% of limit; Core boot 11-22 21:46 (v5.108.39 r...
+  - `beszel_2026_11_24`: Beszel hub container_stats (read-only, ura-prober, system b7q012hnwk73dgu). STEP 11-13/14 = ADD-ON, NOT CORE, NOT URA: app_f85239b4_voice_incubator absent through the 480m bucket ending 11-13 16:40, 139 MB avg in the bucket ending 11-14 ...
+  - `retracted_2026_11_24`: My earlier 'host creeps ~30 MB/h between restarts, possibly a leak' framing was host-level and is not supported for Core: Core's own peaks are flat 11-21..11-24 in Beszel. URA's v5.108.21 restart is not the step (voice_incubator started ...
+  - `incident_2026_11_24_profiler_oom`: MY ACTION CRASHED HA. 22:40-22:41 CST, after the v5.108.40 restart (Core 2.85 GB at boot): turned hahm gc_freeze off, ran profiler.start_log_objects (one growth census logged OK, then stopped), then profiler.start_log_object_sources (sca...
+  - `voice_stopped_2026_11_24`: Operator: 'Stop the voice add ons.' 23:04 CST stopped f85239b4_voice_incubator, core_whisper (both exit 137 on forced stop, state 'error' = not running), core_piper (stopped). All three still boot=auto, so they return on the next host re...
+  - `overnight_2026_11_25`: 02:00-02:11 CST read-only (ssh ha free -m + ha_get_app installed stats): host used 6853/11746 MB, available 4892 MB, swap 1315/3877 MB (vs 23:05: used 6.6 GB, avail 5.1 GB, swap 1.2 GB). The three voice add-ons are still not running (voi...
+  - `hm_v2_4_1_2026_11_25`: Health Monitor core_mem gap fixed in its repo (operator: 'Issue the fix in that repo and build and push'; picked the direct call over enabling the Supervisor sensors). ha-health-monitor branch v2.4.1-core-stats 8b0d3e1, pushed to GitHub ...
+  - `overnight_2026_11_26`: MEASURED (read-only, 02:03 CST free -m + ura-prober Beszel container_stats 20-min/120-min series + recorder events). HOST: used 8064/11746 MB, avail 3681, swap 1979/3877 (vs 11-25 02:00: 6853 used, swap 1315). CORE IS THE WHOLE RISE: hom...
+
+### `ARRIVAL-ENGINE-S8-1` - Step 8 arrival engine: arrival music in your own room, welcome scene in your bedroom, departure pause (ships as option B) — _#36 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **waiting_operator**
-_created 2026-11-16 03:10 · updated 2026-11-25 02:11_
+_created 2026-11-16 03:10 · updated 2026-11-26 02:05_
 - **Origin:** 2026-11-16 - Split for the v5.108.31 deploy; parent keeps the live MA test, the final ownership rule and v6.0.0.
 - **Why:** Plan rev 3.6.1 D2/D3/D4. Reviews A+G/B/D -> fix pass c05e2103; review C 436 mutations -> test-gap pass 189509bd (76/76 RED). Operator 2026-11-16: ship option B.
 - **Next:** DO: in URA -> Coordinator Manager options -> People, turn on Arrival music (and, if you want it, Welcome scene with a scene picked) for at least yourself -> I judge the discriminator on your next arrival from memory_episodes (started the...
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `tier`: 3
   - `discriminator_2026_11_16`: Done when the first opted-in arrival logs outcome=started (or a named skip) then arrived/wait_* with zero stopped_then_arrived, a same-day GPS flap is skipped short_absence, and the first welcome scene logs scene_confirmed.
   - `soak_exit_2026_11_25_overnight`: NOT-EVALUABLE, needs you. URA DB memory_episodes: 0 rows of arrival_music or welcome_scene, ever (shipped v5.108.33, 11-16). Why: the engine only acts for an opted-in person (music_following.py:796-807 arrival_opted_in; :1095-1106 skip r...
+  - `recheck_2026_11_26_overnight`: STILL-WAITING (core.config_entries 02:02 CST): all 4 person_profiles still auto_music=false, auto_scene=false, no welcome scene. Nothing can start an arrival. DO/ANSWER stands.
 
-### `PEOPLE-SCREEN-1` - People settings screen and per-person profile store (step 8 §10.1); configuration only, nothing acts yet — _#36 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PEOPLE-SCREEN-1` - People settings screen and per-person profile store (step 8 §10.1); configuration only, nothing acts yet — _#37 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **waiting_operator**
-_created 2026-11-15 20:10 · updated 2026-11-25 02:11_
+_created 2026-11-15 20:10 · updated 2026-11-26 02:05_
 - **Origin:** 2026-11-15 - Operator: ship the People screen first. Split for the v5.108.29 deploy; parent keeps D2/D3/D4/D6/D7.
 - **Why:** Reviews A+G, B, C (130 mutations); fix pass b769c29e (40/40 fix sites RED); develop merge 235f5c0f; allowlist pin c8a9a16c. B0 live form check right after install, rollback if the form fails.
 - **Next:** DO (1 min): in URA -> Coordinator Manager options -> People, clear one room pick on any person and save -> I read person_profiles; the key gone/empty closes this. Profile saving without a reload is already proven.
-- **Forensic keys (7):**
+- **Forensic keys (8):**
   - `recheck_2026_11_24_overnight`: STILL-WAITING: no person_profiles key in any URA config entry (core.config_entries on the live mount).
   - `paged_2026_11_22_overnight`: Paged 02:27 CST in one consolidated quiet notification (notify.madronehapushover, priority -1).
   - `soak_exit_2026_11_22_overnight`: NOT-MET, needs operator: the Coordinator Manager entry in core.config_entries has no person_profiles key (store: person_profiles.py:3, CONF_PERSON_PROFILES const.py:5508; entry modified_at 11-19 20:24Z). No profile has ever been saved, s...
@@ -1413,8 +1428,9 @@ _created 2026-11-15 20:10 · updated 2026-11-25 02:11_
   - `tier`: 2
   - `verified_2026_11_23_overnight`: STILL-WAITING: no person_profiles key in any URA config entry data/options (core.config_entries 02:05 CST). DO stands.
   - `recheck_2026_11_25_overnight`: LEG 1 MET (ssh ha read of /config/.storage/core.config_entries, 02:00-02:11 CST): the Coordinator Manager entry now has options.person_profiles for 4 people (ezinne, jaya, oji_udezue, ziri; each auto_music/auto_scene false, one bedroom +...
+  - `recheck_2026_11_26_overnight`: STILL-WAITING on leg 2 (core.config_entries 02:02 CST): CM entry modified_at still 2026-11-24 14:34:08Z; person_profiles unchanged (4 people, each one bedroom + one bathroom pick). No pick has been cleared yet. DO stands.
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#37 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#38 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -1434,7 +1450,7 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#38 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#39 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **census** - status: **waiting_operator** - approval: **explicit**
 _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
 - **Problem / Solution:**
@@ -1457,7 +1473,7 @@ _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
   - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRE...
   - `sweep_2026_10_05`: Board census/egress cards swept; GAP-A-CENSUS-HOLE-1 ADJACENT. NEW.
 
-### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#39 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#40 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
 - **Problem / Solution:**
@@ -1477,7 +1493,7 @@ _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
   - `contradiction_2026_10_19_overnight`: CARD-WAS-WRONG on its own next: update_2026_10_15 records YOUR answer ('rapid change isn't that a heat thing for fire? If so it's a fix') and verified temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859) -> disposition FIX (B)...
   - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#40 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#41 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -1492,7 +1508,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-### `CROSSING-LEDGER-RESTART-RESTORE-1` - Every Home Assistant restart wipes the crossing ledger's known head count, and it only re-learns it when the house is next seen empty, so the ledger is known ~15% of the time — _#41 · WSJF 0.8 · v6 tc3 u2 /e13_
+### `CROSSING-LEDGER-RESTART-RESTORE-1` - Every Home Assistant restart wipes the crossing ledger's known head count, and it only re-learns it when the house is next seen empty, so the ledger is known ~15% of the time — _#42 · WSJF 0.8 · v6 tc3 u2 /e13_
 thread: **vision** - status: **waiting_operator** - approval: **blocked**
 _created 2026-11-24 02:08 · initial_
 - **Problem / Solution:**
