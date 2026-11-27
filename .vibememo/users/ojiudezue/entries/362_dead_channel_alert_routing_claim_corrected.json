@@ -1,0 +1,15 @@
+{
+  "format_version": "2.1",
+  "entry_id": "362",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-27T08:55:00Z",
+  "type": "correction",
+  "weight": "moderate",
+  "title": "Correction: a HIGH dead-channel alert reaches only the phone app under live severity floors",
+  "summary": "Entry 361 told Oji the alert would arrive by phone app, Pushover and WhatsApp. The planner read the live Coordinator Manager config and the orchestrator confirmed it: WhatsApp/Pushover/iMessage floors are CRITICAL, companion HIGH, quiet hours 22:00-07:00. So HIGH reaches only the app, and is held at night. The plan (PLANNING_nm_dead_channel_alert.md, Tier 2) adds an always-on HA persistent notification; N=6 h, Store-persisted failing-since, reuse fire_stuck_signal.",
+  "why": "Counseling: routing was described from the code's shape, not the live config. Delivery claims are config claims; read the options before answering 'how will I get it'. The operator now picks (A) app + HA notification, or (B) lower WhatsApp's floor to HIGH (a setting with wider effect).",
+  "alternatives_considered": [
+    "Send the alert at CRITICAL to reach every channel (rejected: breaks DND for a non-urgent fault)",
+    "Add an exclude-channel routing parameter (rejected by the planner: the dead-channel send just fails and the alerted latch prevents a repeat)"
+  ]
+}
