@@ -1,0 +1,15 @@
+{
+  "format_version": "2.1",
+  "entry_id": "366",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-27T11:55:00Z",
+  "type": "decision",
+  "weight": "light",
+  "title": "v5.108.41 live-validated; dead-channel card closed with routing default A",
+  "summary": "After the 11:48 restart (house awake, guest), all four message channels showed ok with failing_since null, no Store and no channel_dead notification, and zero URA errors in the log. The HA MCP server was down, so the Marketplace install went over its websocket commands directly. The card closed as done instead of riding organic, and the open routing pick took default A (phone app plus HA notification, no setting change), leaving B (WhatsApp floor to HIGH) as a veto.",
+  "why": "The organic discriminator needs a real 6 h outage that may never come in a bounded window, and the feature is itself the code trip-wire, so Soak Exit says close it. Default A changes nothing, so taking it under the recommend-don't-menu rule costs nothing to reverse.",
+  "alternatives_considered": [
+    "Leave shipped_organic until a real outage (rejected: unbounded soak)",
+    "Hold the card in waiting_operator for the A/B pick (rejected: A is a no-change default; B is a knob turn on request)"
+  ]
+}
