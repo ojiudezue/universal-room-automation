@@ -96,7 +96,8 @@ cards:
 - id: NM-IMESSAGE-OUTBOUND-DEAD-1
   title: Every iMessage URA has tried to send since 11-22 17:12 has failed ("Chat does not exist"), and nothing told the operator
   thread: notifications
-  status: waiting_operator
+  status: shipped_organic
+  shipped_version: v5.108.41
   created: '2026-11-27 02:02'
   updated: '2026-11-27 03:37'
   refinement_status: refined
