@@ -98,7 +98,7 @@ cards:
   thread: notifications
   status: waiting_operator
   created: '2026-11-27 02:02'
-  updated: '2026-11-27 03:08'
+  updated: '2026-11-27 03:37'
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-11-27 ("Approved but how will i receive the alert? WhatsApp ?") - dead-channel alert half'
@@ -188,6 +188,7 @@ cards:
   - 'If every outbound channel is dead, fall back to an HA persistent notification.'
   plan_review_2026_11_27: 'Tier-2 plan review FIX-PLAN: 2 HIGH (fire_stuck_signal day latch at _stuck_signal_nm.py:203 would swallow a second outage the same day -> key per episode; in-flight guard vs self-route recursion), 4 MEDIUM (tracked task, Store-load race, anomaly row on every episode open, close on channel disable), 5 LOW. All amended in the plan and spot-checked by the orchestrator. Build dispatched to a worktree; the operator PICK below does not change code.'
   built_2026_11_27: 'Built on feature/nm-dead-channel-alert at 5f5d1dc0b (tag pre-review-nm-dead-channel): notification_manager.py +352, quality/tests/test_nm_dead_channel_alert.py (22 tests; builder ran 18 per-site mutation drills, all red). Orchestrator re-drilled the H1 per-episode key independently: neutering it turns test_dead_channel_second_episode_same_day_alerts red; restored, 22 passed, tree clean. Builder departures from the plan: (1) close-on-unconfigured implemented as enable-flag-off only; (2) a persisted opened_at field added so retries and restarts do not repeat the anomaly row or the notification; (3) failure count saved on transitions and teardown only, so it can come back low after a hard crash. Tier-2 reviews A and B and the full-suite name-diff are running.'
+  reviewed_2026_11_27: 'Tier-2 reviews: A SHIP (MEDIUM: corrupt Store entry could stop NM starting), B SHIP (MEDIUM: fresh Store per save let an older snapshot land last, resurrecting a closed episode). Both fixed in 83b1e70a7 with drilled tests; the orchestrator re-drilled the one-Store fix (red, then restored clean). Full-suite name-diff at 5f5d1dc0b clean (23886 passed, 0 new failures); re-run on 83b1e70a7 in progress. Review record: docs/reviews/code-review/v5.108.41_nm_dead_channel_alert.md. Ready to ship at an attended deploy (not while the house sleeps).'
   next: 'PICK: (A) keep the live settings: the alert goes to the phone app only, plus an HA notification at once; at night the app push waits until 07:00 (recommended, no setting change). (B) also get it on WhatsApp by lowering WhatsApp''s severity floor to HIGH, a settings change that also sends your other HIGH alerts to WhatsApp. ALSO ANSWER: if the phone app itself is the dead channel, only the HA notification fires; OK? -> I finish the plan review and build to review. Plan: docs/planning/PLANNING_nm_dead_channel_alert.md'
   refs:
   - ~/Library/Logs/bluebubbles-server/main.log
