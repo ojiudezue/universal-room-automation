@@ -1,0 +1,14 @@
+{
+  "format_version": "2.1",
+  "entry_id": "360",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-27T08:47:00Z",
+  "type": "decision",
+  "weight": "minor",
+  "title": "iMessage outage closed; no 'from me' filter on inbound",
+  "summary": "Homelab re-added the bluebubbles config entry through the config flow with the LAN host (new entry 01M8E2SJ9DM5DTSAM37JE3W243, no file edit). A URA-authored iMessage reached the phone at 02:44 and every /chat/new since 02:43 succeeded, so the outage half of NM-IMESSAGE-OUTBOUND-DEAD-1 closed. That message was an 'Unknown command' reply to Homelab's direct test, which echoed back through the reply webhook.",
+  "why": "Homelab offered an inbound filter that ignores from-me messages URA didn't send. Declined: URA already drops isFromMe (notification_manager.py:4339), and the 08-05 echo-loop note (:611) says that flag doesn't separate echoes in this self-chat setup, so a from-me filter risks dropping the operator's real replies. A stray reply after a direct test is the cheaper failure; test through URA instead.",
+  "alternatives_considered": [
+    "Filter inbound from-me messages not in the echo buffer (rejected: the flag can't tell the operator's replies from tests here)"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "format_version": "2.1",
+  "entry_id": "355",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-25T05:40:00Z",
+  "type": "decision",
+  "weight": "moderate",
+  "title": "Health Monitor: relax 'no Supervisor calls' for Core stats only, on portability grounds",
+  "summary": "The monitor's core_mem was always null because HA's core-stats cache fills only while the Supervisor's Core sensors are enabled (off by default). The plan's L5 rule 'no new Supervisor or psutil calls' rested on a wrong row claiming the cache was always refreshed. Oji asked for the rule to be reconsidered only for good reason, then chose a direct call over enabling the two house sensors. v2.4.1 pushed to GitHub and Gitea on branch v2.4.1-core-stats; it makes one awaited core/stats call per 15-minute sample, only when the cache is empty.",
+  "why": "The rule protects event-loop time, and an awaited HTTP call every 15 minutes never holds the loop. Leaving the measure dead on every default install fails the portability imperative. Enabling the sensors would have kept the rule, but it polls 15x more often and works only on this house. The review's M1 (malformed payloads escaping the except and freezing the whole system sample) was fixed in-cycle.",
+  "alternatives_considered": [
+    "Enable the Supervisor Core sensors on the house and only explain the blank (rule kept; HA polls every 60 s; not portable)",
+    "Subscribe via async_enable_container_updates (private coordinator shape, rejected)"
+  ]
+}

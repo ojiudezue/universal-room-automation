@@ -75,20 +75,28 @@ showed 0 NEW and 0 GONE:
 The merged develop (745fa8e8d) had a full name-diff against 4bc0fcbed before deploy: 23864 passed, 0 failed,
 0 NEW, 0 GONE.
 
-## Live validation (prospective)
+## Validated 2026-11-24 (restart ~22:37 CST, URA back 22:38)
 
-- **Coordinator Manager > Configure:**
-  - the menu has "Rule writing model";
-  - it opens with the current value (expect `ai_task.claude_ai_task`);
-  - the Optimizer LLM section has no model field.
-- **A room > Room rules > Run an automation > Check your rule:**
-  - it shows exactly Save and Change the wording;
-  - Save adds the rule to Your rules.
-- **End-to-end run.** One Run-an-automation rule fires on its "When" and logs a decision row. This uses no Claude
-  call, because Claude AI Task is locked until 12-01.
-- **Model change without reload.** Changing only the rule writing model does not reload any room entries.
-- **Alert audit rows.** After the restart, `notification_log` has no `bucket_outcome='no_channel_fired'` rows for
-  `perimeter_alert` digest-preference recipients. New LOW/MEDIUM perimeter alerts appear as `channel='digest'` rows
-  with audit `digest_queued`.
-- **Boot.** URA loads with all room entries set up, and the log has no new errors from `config_flow` or
-  `notification_manager`.
+The operator overrode the no-restart-while-sleeping rule ("Don't hold ship it"). The house was in Sleep, and house
+state came back as `sleep` at 22:38:14.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Install | PASS | Marketplace `installed_version` v5.108.40; config check valid |
+| Boot | PASS | 50/50 URA config entries `loaded`; system_log for the integration has warnings only, no errors. The one notable warning (`Zone-kWh seed UNRESOLVED`, 3 zones) is the known boot warning on card HVAC-ZONE-KWH-SEED-WARN-WORDING-1, not from this release |
+| CM menu has "Rule writing model" | PASS | Coordinator Manager options menu ends with `room_rules_model` |
+| Model step shows the stored value | PASS | `room_rules_ai_task_entity` form default `ai_task.claude_ai_task`; flow aborted, nothing saved |
+| Optimizer form has no model field | PASS | `coordinator_optimization` LLM section lists only task entity, triage entity, prompt and daily cap; flow aborted |
+| Check your rule is a menu | PASS | Study A (room rules off) > Room rules > Run an automation > submit: `room_rule_confirm` menu = `room_rule_save_turn_on`, `room_rule_save`, `room_rule_change_wording` (turn-on first because the switch is off) |
+| Change the wording | PASS | returned to `room_rule_automation` with the same fields; flow aborted, nothing saved |
+| Save adds the rule / end-to-end run of one Run-an-automation rule | NOT RUN | Saving a live rule in an occupied, sleeping house was not done unattended; owed at the next attended session (card AI-ROOM-RULES-TRUST-REPAIR-1) |
+| Model change without reload | NOT RUN LIVE | Proven in-suite (key still in the reload-suppress set, suppression tests pass); not exercised live to avoid changing a live setting |
+| Alert audit rows | PENDING (organic) | Since restart, no `no_channel_fired` rows (one stuck_signal MEDIUM `digest_queued`). Since 11-24 00:00 CST, 1 `no_channel_fired` row, before the restart. The discriminator is the deploy `--revisit` check over the following days |
+
+HA Core memory 3 minutes after boot: 2.85 GB (`ha core stats`), against 5.03 GB before the restart. Host available
+memory 3.4 GB, swap 2.4 of 3.9 GB used. This is the baseline for HA-CORE-MEMORY-GROWTH-1.
+
+**Unplanned second restart, not caused by this release.** At 22:41 CST the HA Profiler's object-source scan, run by me to
+attribute Core memory (card HA-CORE-MEMORY-GROWTH-1), stalled the loop for 31.5 s. It then grew Core to 7.9 GB, and the
+kernel OOM killer stopped Core. The Supervisor restarted it. Afterwards: 50/50 URA entries `loaded`, house state `sleep`
+at 22:43:44, Core 3.2 GB.

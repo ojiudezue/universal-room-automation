@@ -1,0 +1,14 @@
+{
+  "format_version": "2.1",
+  "entry_id": "354",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-25T04:55:00Z",
+  "type": "incident",
+  "weight": "significant",
+  "title": "Profiler object-source scan OOM-killed HA Core on the 12 GB NUC; abandon in-process heap profiling on this host",
+  "summary": "Following the operator's 'Ship now + Profiler after' choice, I turned off the health monitor's GC freeze and ran profiler.start_log_object_sources right after the v5.108.40 restart. The first scan stalled the loop 31.5 s and grew Core from ~3 GB to 7.9 GB anon-rss; the kernel global OOM killer killed Core and the Supervisor restarted it while the house slept. URA came back clean (50/50 entries, Sleep held). I restored gc_freeze and recorded a no-run rule in memory.",
+  "why": "The source logger treats every object as new on its first scan and holds them, which doubles the heap on a host with ~3.4 GB free. I priced the cost as a few seconds of loop pause per scan and did not check memory headroom against the scan's own allocation. The URA-share question stays open; the safe evidence path is Beszel per-container history plus ha core stats, and only the type-count growth logger (which ran harmlessly) if more detail is ever needed.",
+  "related_cards": [
+    "HA-CORE-MEMORY-GROWTH-1"
+  ]
+}

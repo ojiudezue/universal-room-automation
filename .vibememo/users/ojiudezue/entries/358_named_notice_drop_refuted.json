@@ -1,0 +1,15 @@
+{
+  "format_version": "2.1",
+  "entry_id": "358",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-26T21:10:00Z",
+  "type": "correction",
+  "weight": "moderate",
+  "title": "Named-notice 'drop' refuted: 0.6 single-face crossings sit under the 0.75 naming gate",
+  "summary": "Entry 357 reported named arrival notices falling 40% to 20% and every arrival in guest mode. Both were wrong: notification_log starts 10-27 (no October baseline; named share rose from ~5-10% to ~20%), and guest covered 9 of 51 arrivals. The real finding: crossing person_id has no threshold, but the notice names only at identity_confidence >= 0.75 (unchanged since 11-13), and ~75% of identified crossings are single-face 0.6 legs. The phone-corroboration anchor that should lift them has fired 0 times.",
+  "why": "Recording the correction keeps the arc from chasing a regression that never happened. The lever is the S1 anchor (Tier 2, due 12-01), with a hedged 'probably <name>' text as a cheap Tier 1 that leaves the 0.75 trust bar intact; both are operator decisions because they change naming doctrine or wording.",
+  "alternatives_considered": [
+    "Lower the 0.75 gate to 0.6 (rejected: misnaming risk; faces are often confused)",
+    "Widen the second-camera window to reach 0.9 (kept as option 3)"
+  ]
+}

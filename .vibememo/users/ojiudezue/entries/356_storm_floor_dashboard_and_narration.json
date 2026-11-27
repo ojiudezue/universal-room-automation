@@ -1,0 +1,15 @@
+{
+  "format_version": "2.1",
+  "entry_id": "356",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-26T05:55:00Z",
+  "type": "decision",
+  "weight": "light",
+  "title": "Storm pre-onset floor: dashboard fixed live, misleading reason text carded for the next attended restart",
+  "summary": "Oji asked why URA set the drain target to 50% this evening. It did not: a Freeze Warning (onset 03:00, forecast low 37F, so unconfirmed) put the lower pre-onset floor of 50 on the reserve from 23:00, with no grid buy. The drain target stayed 10% for an excellent solar day. Two surfaces hid this: the URA v8 Storm Watch card said 'All clear / no alerts' because it read only the storm state (none until onset), and the strategy reason printed the raised floor as 'target 50% (target excellent)'. The card was patched live to read inclement_preonset; the reason text became EC-PREONSET-REASON-NARRATION-1.",
+  "why": "The behaviour matched the storm doctrine (an alert may raise the no-discharge floor; buying needs the local forecast), so nothing in the decision logic needed changing. A dashboard edit has no restart and no house impact, so it went out at once. The narration fix is code, needs a restart, and the house was asleep, so it waits for the next batch rather than forcing a sleeping-house restart for wording.",
+  "alternatives_considered": [
+    "Ship the narration fix tonight (needs a restart during Sleep; not worth it for wording)",
+    "Show the floor in the heading badge too (left as is; badge visibility only keys on state)"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "353",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-25T04:45:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "HA NUC memory: the 11-13/14 step is the Voice Incubator add-on, not Core or URA; Core peaks flat; GC freeze is a creep candidate only",
+  "summary": "Homelab flagged the NUC at ~87% with full swap and Core at 4.9 GB. Operator asked to make sure it is not URA, precisely. HA-side Beszel host stats showed a step from 61-66% to 71-87% starting late 11-13, which lined up with the v5.108.21 deploy, an easy wrong attribution. Beszel per-container history (480m buckets) put +831 of the +1069 MB jump on app_f85239b4_voice_incubator (absent before, 970 MB after); Core moved +116 MB in the same bucket. Core's own daily peaks were 4.9-5.0 GB on 11-21..11-24, no drift. The health monitor's gc_freeze (refreeze every 4 h, 9.45M frozen objects) predates the step and can only explain slow creep, unproven.",
+  "why": "The step's hour (23:00 CST 11-13) overlapped a URA deploy (deploy.sh 23:55), and the host series alone could not separate Core from add-ons. Per-container data was the discriminator; without it the timing coincidence would have blamed URA. I retracted my earlier host-level 'possible leak, ~30 MB/h' framing on the card because Core's own peaks were flat. Next: after the restart, turn gc_freeze off and use the Profiler integration to size URA's share of Core by source file (operator chose Ship + Profiler after).",
+  "alternatives_considered": [
+    "Blame v5.108.21 from timing alone (rejected: the step began in the hour before that restart, and per-container data shows an add-on)",
+    "Profiler before restart (deferred: the step evidence lives in Beszel, and growth recurs after every restart)"
+  ],
+  "related_cards": [
+    "HA-CORE-MEMORY-GROWTH-1"
+  ],
+  "also": "Operator overrode the no-restart-while-sleeping rule for v5.108.40 ('Don't hold ship it'); restart taken 22:40 CST while the house was in Sleep."
+}

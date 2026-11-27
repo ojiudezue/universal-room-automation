@@ -1,0 +1,16 @@
+{
+  "format_version": "2.1",
+  "entry_id": "361",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-27T08:51:00Z",
+  "type": "decision",
+  "weight": "moderate",
+  "title": "Dead-channel alert approved: all healthy channels, non-critical, failing-since must survive restarts",
+  "summary": "Oji approved the dead-channel alert and asked whether it would arrive by WhatsApp. Default given: every still-healthy channel through NM's normal routing with the dead one excluded, at non-critical severity so quiet hours hold; one alert per outage, re-armed on the channel's next success; an HA persistent notification if all channels are dead.",
+  "why": "One fixed channel (WhatsApp) could itself be the dead one. Critical severity would wake the house over a non-urgent fault. NM channel health is in memory only (notification_manager.py:513/:7163) and resets on every restart; at about one restart a day a naive N-hour counter would rarely fire, which repeats the crossing-ledger lesson (338). Plan dispatched to ura-planner.",
+  "alternatives_considered": [
+    "WhatsApp only (rejected: single point of failure)",
+    "Critical severity (rejected: a dead channel isn't worth waking anyone)",
+    "In-memory counter (rejected: restarts reset it)"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "365",
+  "author": "ojiudezue",
+  "session_id": "claude_20261127_174257_ship_v5_108_41",
+  "timestamp": "2026-11-27T17:42:57Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.108.41 shipped: NM dead message-channel alert",
+  "summary": "NM dead message-channel alert",
+  "why": "iMessage was 100% dead for 4.5 days (Cloudflare 301 on the BlueBubbles host) and nobody was told because other channels delivered; the per-day stuck-signal latch was replaced by a per-outage key after plan review, and one Store per NM after review B.",
+  "implications": "Shipped NM-IMESSAGE-OUTBOUND-DEAD-1 at v5.108.41; card(s) sit shipped_organic pending validation. Acceptance in README_v5.108.41.md (Live criteria).",
+  "revisit_trigger": "next real channel outage >=6h: one ura_nm_channel_dead_<C> notification + one nm.channel_dead anomaly row + one HIGH alert; or if none occurs, channel_status failing_since stays null for all four channels",
+  "refs": {
+    "cards": [
+      "NM-IMESSAGE-OUTBOUND-DEAD-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.108.41.md"
+    ],
+    "release_notes": "Alert when one message channel (pushover, companion, whatsapp, imessage) fails every send for 6 h: HA notification + anomaly row at episode open, HIGH alert keyed per outage, persisted failure clock, close on first success. README_v5.108.41.md."
+  }
+}

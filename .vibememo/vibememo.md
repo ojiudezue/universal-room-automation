@@ -96,3 +96,6 @@ With two release windows already missed, Oji cleared a restart that evening, and
 
 
 **2026-11-24 overnight, restarts are what keep the indoor head count unknown.** The crossing ledger was trustworthy about 15% of the last week, under the 25% bar the interior-vision floor needs. Seven restarts in seven days, four at night and one crash on 11-20, each wiped it, and it only re-learns when the house is seen empty. That fires the parked restore-after-restart option by its own rule, but it is Tier 3, so it went to Oji as a pick rather than a build. The same pass closed the false room-move flood (0 rows in 889 moves) and found the diagnostics sensor meant to prove it had not updated since boot → [351](users/ojiudezue/entries/351_overnight_ledger_restart_trigger_fires.json).
+
+
+**2026-11-25 overnight, the repeat cap works and leaves one loose end.** The perimeter page cap held live (first hour at home, then stop), but it closes only the camera it was repeating, so a sibling page from the same burst came back after a restart. That goes to Oji as a pick because it reverses a deliberate design choice. AirPlay music moves (34 failures) are being built as a named skip, and the arrival engine waits on someone opting in → [355](users/ojiudezue/entries/355_overnight_1125_cap_residual_airplay_skip_optin.json).
