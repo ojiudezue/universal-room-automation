@@ -569,6 +569,7 @@ class NotificationManager:
         self._dead_emit_in_flight: dict[str, bool] = {}
         self._dead_tasks: set[asyncio.Task] = set()
         self._dead_gen: int = 0
+        self._dead_store_obj: Any = None
         self._dead_saved_gen: int = 0
         # Injectable clock (tests pass a fake; never wall time in tests).
         self._dead_now = dt_util.utcnow
@@ -7317,7 +7318,9 @@ class NotificationManager:
             return
         if int(st.get("consecutive_failures", 0)) < NM_CHANNEL_DEAD_MIN_FAILURES:
             return
-        since = datetime.fromisoformat(st["failing_since"])
+        since = self._dead_parse(st.get("failing_since"))
+        if since is None:
+            return
         if now - since < timedelta(hours=NM_CHANNEL_DEAD_ALERT_H):
             return
         self._dead_emit_in_flight[channel] = True
@@ -7371,12 +7374,75 @@ class NotificationManager:
     async def _dead_save_now(self) -> None:
         gen = self._dead_gen
         try:
-            await _dead_channel_store(self.hass).async_save(self._dead_snapshot())
+            # One Store per NM (review B): HA's Store write lock is
+            # per-instance and writes its latest data, so overlapping saves
+            # serialise and the newest snapshot lands last.
+            await self._dead_store().async_save(self._dead_snapshot())
             self._dead_saved_gen = max(self._dead_saved_gen, gen)
         except Exception:  # noqa: BLE001 — Store failure falls back to RAM
             _LOGGER.debug("NM dead-channel Store save failed", exc_info=True)
 
+    def _dead_store(self) -> Any:
+        """The single Store instance for this NM (load, saves, flush)."""
+        if self._dead_store_obj is None:
+            self._dead_store_obj = _dead_channel_store(self.hass)
+        return self._dead_store_obj
+
+    @staticmethod
+    def _dead_parse(value: Any) -> datetime | None:
+        """Parse a stored ISO timestamp; naive -> UTC; bad -> None."""
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    def _dead_validate(self, st: Any) -> dict[str, Any] | None:
+        """Validate one restored channel entry (review A); None = drop."""
+        if not isinstance(st, dict):
+            return None
+        since = self._dead_parse(st.get("failing_since"))
+        count = st.get("consecutive_failures")
+        if (
+            since is None or isinstance(count, bool)
+            or not isinstance(count, int) or count < 1
+        ):
+            return None
+        out: dict[str, Any] = {
+            "failing_since": since.isoformat(),
+            "consecutive_failures": count,
+        }
+        for key in ("opened_at", "alerted_at"):
+            raw = st.get(key)
+            if raw is None:
+                out[key] = None
+                continue
+            parsed = self._dead_parse(raw)
+            if parsed is None:
+                return None
+            out[key] = parsed.isoformat()
+        return out
+
     async def _dead_load(self) -> None:
+        """Load the persisted clock; never stops NM setup (review A)."""
+        try:
+            await self._dead_load_inner()
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "NM dead-channel clock load failed; starting with an empty "
+                "clock", exc_info=True,
+            )
+            self._dead_clock.clear()
+            self._dead_pending.clear()
+            self._dead_clock_loaded = True
+            for ch in NM_DIGEST_CHANNELS:
+                self._channel_health[ch]["failing_since"] = None
+
+    async def _dead_load_inner(self) -> None:
         """Load the persisted clock and merge pre-load outcomes (review M2)."""
         if NM_CHANNEL_DEAD_ALERT_H <= 0:
             self._dead_pending.clear()
@@ -7384,21 +7450,24 @@ class NotificationManager:
             return
         stored: dict[str, Any] = {}
         try:
-            data = await _dead_channel_store(self.hass).async_load() or {}
+            data = await self._dead_store().async_load() or {}
             stored = dict(data.get("channels") or {})
         except Exception:  # noqa: BLE001
             _LOGGER.debug("NM dead-channel Store load failed", exc_info=True)
         changed = False
         dismiss: list[str] = []
         for ch in NM_DIGEST_CHANNELS:
-            st = stored.get(ch)
-            if isinstance(st, dict) and st.get("failing_since"):
-                self._dead_clock[ch] = {
-                    "failing_since": st["failing_since"],
-                    "consecutive_failures": int(st.get("consecutive_failures", 0)),
-                    "opened_at": st.get("opened_at"),
-                    "alerted_at": st.get("alerted_at"),
-                }
+            raw = stored.get(ch)
+            if raw is not None:
+                valid = self._dead_validate(raw)
+                if valid is None:
+                    _LOGGER.warning(
+                        "NM dead-channel: dropping invalid stored entry for "
+                        "%s: %r", ch, raw,
+                    )
+                    changed = True
+                else:
+                    self._dead_clock[ch] = valid
             buf = self._dead_pending.get(ch)
             if not buf:
                 continue
@@ -7418,7 +7487,9 @@ class NotificationManager:
                     "alerted_at": None,
                 }
             else:
-                if buf["first_fail"] < cur["failing_since"]:
+                buf_t = self._dead_parse(buf["first_fail"])
+                cur_t = self._dead_parse(cur["failing_since"])
+                if buf_t is not None and cur_t is not None and buf_t < cur_t:
                     cur["failing_since"] = buf["first_fail"]
                 cur["consecutive_failures"] += buf["failures"]
         self._dead_pending.clear()

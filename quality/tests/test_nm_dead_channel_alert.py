@@ -47,15 +47,30 @@ class _Clock:
 
 
 class _FakeStore:
+    """Models HA Store write semantics (helpers/storage.py async_save +
+    _async_handle_write_data): per-INSTANCE write lock, the writer takes the
+    instance's latest data once it holds the lock. ``io_delays`` (shared via
+    backing) lets a test make one write's I/O slower than the next."""
+
     def __init__(self, backing: dict) -> None:
         self.b = backing
+        self._lock = asyncio.Lock()
+        self._data = None
 
     async def async_load(self):
         return copy.deepcopy(self.b.get("data"))
 
     async def async_save(self, data):
-        self.b["saves"] = self.b.get("saves", 0) + 1
-        self.b["data"] = copy.deepcopy(data)
+        self._data = copy.deepcopy(data)
+        async with self._lock:
+            if self._data is None:
+                return  # another write already consumed the latest data
+            data, self._data = self._data, None
+            delays = self.b.get("io_delays") or []
+            for _ in range(delays.pop(0) if delays else 0):
+                await asyncio.sleep(0)
+            self.b["saves"] = self.b.get("saves", 0) + 1
+            self.b["data"] = data
 
 
 class _FakeDB:
@@ -573,3 +588,80 @@ async def test_dead_channel_teardown_flushes_and_cancels(backing, monkeypatch):
     await nm.async_teardown()                          # cancels the slow save
     assert nm._dead_tasks == set()
     assert backing["data"]["channels"]["imessage"]["consecutive_failures"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Fix-up: corrupt restored state (review A), overlapping saves (review B)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dead_channel_corrupt_store_starts_clean(backing, monkeypatch):
+    backing["data"] = {"channels": {
+        "imessage": {"failing_since": "not-a-time", "consecutive_failures": 5,
+                     "opened_at": None, "alerted_at": None},
+        "whatsapp": {"failing_since": T0.isoformat(),
+                     "consecutive_failures": "seven",
+                     "opened_at": None, "alerted_at": None},
+        "pushover": {"failing_since": "2026-11-22T17:12:00",   # naive
+                     "consecutive_failures": 4,
+                     "opened_at": None, "alerted_at": None},
+        "companion": {"failing_since": T0.isoformat(),
+                      "consecutive_failures": 3,
+                      "opened_at": "garbage", "alerted_at": None},
+    }}
+    clock = _Clock(T0 + timedelta(hours=1))
+    nm = await _setup_nm(monkeypatch, clock)          # setup must not raise
+    assert nm._dead_clock_loaded
+    assert "imessage" not in nm._dead_clock
+    assert "whatsapp" not in nm._dead_clock
+    assert "companion" not in nm._dead_clock
+    # naive timestamp kept, normalised to UTC
+    assert nm._dead_clock["pushover"]["failing_since"] == T0.isoformat()
+    assert set(backing["data"]["channels"]) == {"pushover"}
+    # a later outage on a dropped channel still opens a fresh episode
+    start = T0 + timedelta(hours=2)
+    await _outage(nm, clock, "imessage", start, 6.1, 5)
+    assert nm._dead_clock["imessage"]["failing_since"] == start.isoformat()
+    titles = [c.kwargs["title"] for c in nm.async_notify.await_args_list]
+    assert "Notification channel dead: imessage" in titles
+
+
+@pytest.mark.asyncio
+async def test_dead_channel_load_exception_starts_empty(backing, monkeypatch):
+    """An unexpected exception inside the load falls back to an empty
+    clock and NM setup still completes."""
+    backing["data"] = {"channels": {"imessage": {
+        "failing_since": T0.isoformat(), "consecutive_failures": 3,
+        "opened_at": None, "alerted_at": None}}}
+
+    def _boom(self, st):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(nm_mod.NotificationManager, "_dead_validate", _boom)
+    clock = _Clock(T0)
+    nm = await _setup_nm(monkeypatch, clock)
+    assert nm._dead_clock_loaded
+    assert nm._dead_clock == {}
+    await _fail(nm, clock, "imessage", T0)
+    assert nm._dead_clock["imessage"]["consecutive_failures"] == 1
+
+
+@pytest.mark.asyncio
+async def test_dead_channel_overlapping_saves_newest_wins(backing):
+    """Open-save and close-save in flight together, the first one's I/O
+    slower: after a reload there is no episode."""
+    clock = _Clock(T0)
+    nm = await _loaded(clock)
+    backing["io_delays"] = [10, 0]
+    nm._update_channel_health("imessage", False)    # save #1 (episode open)
+    for _ in range(3):
+        await asyncio.sleep(0)                      # save #1 now in its I/O
+    assert backing["data"] is None                  # ...and not landed yet
+    nm._update_channel_health("imessage", True)     # save #2 (episode closed)
+    await _drain(nm)
+    for _ in range(30):
+        await asyncio.sleep(0)
+    assert backing["data"] == {"channels": {}}
+    nm2 = await _loaded(clock)
+    assert nm2._dead_clock == {}
