@@ -96,11 +96,12 @@ cards:
 - id: NM-IMESSAGE-OUTBOUND-DEAD-1
   title: Every iMessage URA has tried to send since 11-22 17:12 has failed ("Chat does not exist"), and nothing told the operator
   thread: notifications
-  status: waiting_operator
+  status: planned
   created: '2026-11-27 02:02'
-  updated: '2026-11-27 02:47'
+  updated: '2026-11-27 02:52'
   refinement_status: refined
-  approval: unreviewed
+  approval: explicit
+  approved_by: 'operator 2026-11-27 ("Approved but how will i receive the alert? WhatsApp ?") - dead-channel alert half'
   tags: [found-during-probe, no-fabrication-verify, live-broken]
   live_broken: false
   rank: {value: 7, time_criticality: 7, effort: 2}
@@ -179,7 +180,12 @@ cards:
   knobs:
   - 'NM_CHANNEL_DEAD_ALERT_H (module constant, proposed): hours a channel may fail every send before NM tells the operator on a working channel. Decide in the plan, not set here.'
   parsimony: {problem: 'Every iMessage send has failed since 11-22 17:12 and the operator was never told.', verdict: BUILD (operator fix first; the dead-channel alert is a small separate Tier-1/2 NM change, not built overnight because the NM path is regression-prone and 3 cards already sit in review)}
-  next: 'APPROVE: the dead-channel alert (when one channel has failed every send for N hours, NM tells you on a channel that still works; 4.5 days of silent iMessage failure is the gap it closes) -> I plan and build it to review (Tier 1-2, NM). The outage itself is fixed and closed.'
+  delivery_answer_2026_11_27: 'Operator asked how the alert arrives (WhatsApp?). Answer given: on every channel that is still working, through NM''s normal routing with the dead channel excluded (in this outage: phone app, Pushover, WhatsApp), at a non-critical severity so quiet hours are respected. Default taken; operator can override.'
+  constraints:
+  - 'Channel health is in memory only (notification_manager.py:513, _update_channel_health :7163) and resets on every restart; with about one restart a day the failing-since time MUST persist across restarts or the alert rarely fires.'
+  - 'The alert must not go out on the dead channel itself, and must not repeat more than once per outage (re-arm on the channel''s first success).'
+  - 'If every outbound channel is dead, fall back to an HA persistent notification.'
+  next: 'Me: plan (Tier 2 NM, one plan review), build in a worktree to review. Ship at an attended deploy, not while the house sleeps.'
   refs:
   - ~/Library/Logs/bluebubbles-server/main.log
   - custom_components/universal_room_automation/domain_coordinators/notification_manager.py
