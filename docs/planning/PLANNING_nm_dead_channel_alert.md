@@ -63,7 +63,8 @@ HIGH. See open question Q1.
 **INV-1.** For each channel C in `NM_DIGEST_CHANNELS`: if C records at least `NM_CHANNEL_DEAD_MIN_FAILURES`
 consecutive send failures and no success over a span of at least `NM_CHANNEL_DEAD_ALERT_H` hours, measured from C's
 first failure after its last success **including across HA restarts**, then exactly one dead-channel episode is opened
-for C: one persistent notification (`notification_id = ura_nm_channel_dead_<C>`) created immediately, and one HIGH NM
+for C (each episode keyed by its own `failing_since`, so a second outage the same day is a new episode): one anomaly
+row and one persistent notification (`notification_id = ura_nm_channel_dead_<C>`) created immediately, and one HIGH NM
 alert delivered through normal routing (retried on later failures until NM accepts it, then never again in that
 episode). The episode closes, and the latch re-arms, only on C's next successful send.
 
@@ -91,23 +92,36 @@ pushover 42, companion 80, whatsapp 46.
 **Consumers of the new state.** (1) The new evaluator (trust decision: open episode). (2) `channel_status` attribute
 gains `failing_since` (display). No other reader.
 
-**New producer's zero-fire trip-wire.** The episode open writes an anomaly row via `fire_stuck_signal` (`kind =
-nm_channel_dead`). A detector that is quiet while a channel is degraded for more than N hours is the regression; the
-Live check in D3 tests exactly that.
+**New producer's zero-fire trip-wire (amended, review M3).** `fire_stuck_signal` writes its anomaly row only when NM
+delivers, so it would write nothing during quiet hours or when every channel is dead. The episode open therefore writes
+its own anomaly row (`type = nm.channel_dead`, via `database.save_anomaly_event`, the shape at
+`notification_manager.py:2472-2497`) synchronously with the persistent notification, whatever happens to the HIGH
+emit. The persistent notification is the operator-visible trip-wire; the anomaly row is the machine-readable one.
 
 ## 5. Emission / decision sites
 
 - Detection: one site, `_update_channel_health` (after the existing failure/success arithmetic). Grep confirmed no other
   writer to `_channel_health[ch]["failures"]` for the four channels.
-- Emission: one new helper `_maybe_open_dead_channel_episode(C)`, scheduled as a tracked task from the sync producer
-  (NM already schedules from sync code via `hass.async_create_task`, `:1802`). It calls `persistent_notification.create`
-  then `fire_stuck_signal(..., severity="HIGH")`.
+- Emission: one new helper `_maybe_open_dead_channel_episode(C)`, scheduled from the sync producer as a TRACKED task
+  (review M1): `entry.async_create_background_task` (pattern `notification_manager.py:7228-7231`) or a task set cancelled
+  in `async_teardown` (`:1540-1575`); teardown also flushes any pending Store save. It writes the anomaly row, calls
+  `persistent_notification.create`, then `fire_stuck_signal(..., key=(C, failing_since_iso), severity="HIGH",
+  title_override=f"Notification channel dead: {C}")`.
+  - **key includes `failing_since` (review H1).** `fire_stuck_signal` latches per (kind, key) per day
+    (`_stuck_signal_nm.py:203`). With key=(C,) a second outage of C on the same day would be silently blocked until
+    midnight (e.g. dies 01:00, alert 07:30, recovers 09:00, dies 09:30, the 15:30 call returns False). Keying on the
+    episode's `failing_since` makes each episode its own latch entry.
+  - **title_override (review L1)** gives each channel its own NM dedup key, so four dead channels don't collapse to one.
 - Close: success branch of `_update_channel_health` clears state and schedules `persistent_notification.dismiss`.
 - Not touched: `async_notify`, `_route_for_recipient`, `_channel_qualifies`, `_send_*` bodies, perimeter's legacy direct
   notify `perimeter_alert.py:4446` (outside NM, records no health; section 7).
 
 **Re-entrancy.** The HIGH alert may route to the dead channel (when C is companion). That send fails and re-enters
-`_update_channel_health(C, False)`. The episode latch (`alerted_at` set before any await) makes the re-entry a no-op.
+`_update_channel_health(C, False)`. Two guards, with distinct jobs (review H2):
+- `_dead_emit_in_flight[C]` (RAM only) is set SYNCHRONOUSLY in `_update_channel_health` before the task is scheduled,
+  and cleared in the task's `finally`. While set, re-entry schedules nothing. This is what stops the self-route recursion.
+- `alerted_at[C]` (persisted) is the per-episode latch, set only when `fire_stuck_signal` returns True, so a dropped
+  emit (quiet hours, silence, boot-settle) is retried on a later failure.
 No `exclude_channels` parameter is added to `async_notify`: excluding is unnecessary because a send to a dead channel
 fails harmlessly, and adding a parameter to the main routing entry is risk with no benefit (marginal-benefit check).
 
@@ -120,29 +134,42 @@ written only on transitions (first failure, episode open, success-after-failure)
 `async_setup` before the first send; on load, carries `failing_since`, `consecutive_failures`, `alerted_at` forward.
 Store failure falls back to RAM (logged debug), as in `room_entities.py:142`.
 
+**Load race (review M2).** A `_dead_clock_loaded` flag stays False until the Store load completes. Until then, outcomes
+are buffered in RAM and no Store write or episode evaluation happens. On load, merge per channel: earliest
+`failing_since`, failures summed, `alerted_at` from the Store. A success in the buffer wins (clears the channel).
+
+**Unconfigured channels (review M4).** On `async_setup` and on options reload, for any channel in `NM_DIGEST_CHANNELS`
+that is disabled or has no configured target, drop its Store entry and dismiss `ura_nm_channel_dead_<C>`. Without this a
+channel turned off mid-episode would never send again, never succeed, and never close.
+
 Acceptance:
 - **Verify:** 5 failures, simulated restart (new NM instance, same Store), 1 failure: `failing_since` equals the first pre-restart failure time and count is 6.
 - **Verify:** a success clears all three fields and writes the Store once; 100 consecutive successes write it zero more times.
-- **Test:** `test_dead_channel_clock_survives_restart`, `test_dead_channel_success_clears_and_rearms`, `test_dead_channel_store_writes_only_on_transition`.
+- **Verify:** a failure recorded before the Store load finishes, with a persisted `failing_since` 4 h old: after load, `failing_since` is the persisted (earlier) time and the count is persisted+1.
+- **Verify:** a channel disabled in options mid-episode: on reload its Store entry is gone and its persistent notification dismissed.
+- **Test:** `test_dead_channel_clock_survives_restart`, `test_dead_channel_success_clears_and_rearms`, `test_dead_channel_store_writes_only_on_transition`, `test_failure_before_store_load_merges`, `test_dead_channel_disabled_channel_cleared_on_reload`.
 - **Live:** `.storage/universal_room_automation.nm_channel_dead` absent or all channels empty after deploy (all four channels healthy); `channel_status` attributes show `failing_since: null` per channel.
 
 ### D2. Episode open: persistent notification + HIGH alert
 When `consecutive_failures >= NM_CHANNEL_DEAD_MIN_FAILURES` and `now - failing_since >= NM_CHANNEL_DEAD_ALERT_H` and
-`alerted_at is None`: create the persistent notification (always), then `fire_stuck_signal(kind="nm_channel_dead",
-key=(C,), severity="HIGH", diagnosis="<C> has failed every send since <time> (<n> tries)...", remedy="...")`.
+`alerted_at is None` and not `_dead_emit_in_flight[C]`: write the anomaly row and create the persistent notification
+(always), then `fire_stuck_signal(kind="nm_channel_dead", key=(C, failing_since_iso), severity="HIGH",
+title_override=f"Notification channel dead: {C}", diagnosis="<C> has failed every send since <time> (<n> tries)...", remedy="...")`.
 Set `alerted_at` and save only when `fire_stuck_signal` returns True. If it returns False (quiet hours, silence,
 boot-settle, kill switch), leave `alerted_at` unset so the next failure retries; the persistent notification is
 idempotent by `notification_id`, so retries do not duplicate it. Evaluation is event-driven on each failure; no timer.
 
 Acceptance:
-- **Verify (discriminating):** failures spanning N h minus 1 min: no alert, no persistent notification. One more failure at N h plus 1 min: exactly one of each. A plausible wrong build (counting failures without the persisted clock) passes the first half but fails the restart variant below.
+- **Verify (discriminating, fake clock injected, review L4):** failures spanning N h minus 1 min: no alert, no persistent notification. One more failure at N h plus 1 min: exactly one of each. A plausible wrong build (counting failures without the persisted clock) passes the first half but fails the restart variant below.
 - **Verify:** restart at hour N/2 mid-outage, failures continue: alert fires at hour N measured from the pre-restart first failure, not N h after the restart.
 - **Verify:** 5 restarts after the alert, failures continuing: zero further alerts (INV-3).
 - **Verify:** crossing during quiet hours: `async_notify` drops it (return False), persistent notification exists, `alerted_at` unset; first failure after 07:00 delivers the alert once.
-- **Verify:** C = companion: the alert's own companion send fails and does not open a second episode or recurse.
+- **Verify:** C = companion: the alert's own companion send fails and does not open a second episode or recurse; `async_notify` is called exactly once.
+- **Verify (H1):** same calendar day, outage 1 alerted and recovered, outage 2 crosses N h: outage 2 alerts (not blocked by the day latch).
+- **Verify (M3):** crossing during quiet hours writes the `nm.channel_dead` anomaly row even though the HIGH emit is dropped.
 - **Verify:** all four channels dead: four persistent notifications, and HIGH emits that deliver nowhere leave `alerted_at` unset (retried, never storms because each retry is gated by NM dedup `NM_DEDUP_HIGH` 300 s and only fires on a real send failure).
 - **Verify (INV-2):** channel enabled, zero sends for 48 h: no episode.
-- **Test:** `test_dead_channel_alert_at_threshold`, `test_dead_channel_alert_across_restart`, `test_dead_channel_no_storm_across_restarts`, `test_dead_channel_quiet_hours_retry`, `test_dead_channel_self_route_no_recursion`, `test_dead_channel_all_dead_persistent_only`, `test_idle_channel_never_dead`, `test_transient_2h_outage_no_alert` (fixture: the 10-18 shape, 11 failures in 2 h then success).
+- **Test:** `test_dead_channel_alert_at_threshold`, `test_dead_channel_alert_across_restart`, `test_dead_channel_no_storm_across_restarts`, `test_dead_channel_quiet_hours_retry`, `test_dead_channel_self_route_no_recursion`, `test_dead_channel_all_dead_persistent_only`, `test_idle_channel_never_dead`, `test_dead_channel_second_episode_same_day_alerts`, `test_dead_channel_anomaly_row_written_when_emit_dropped`, `test_transient_2h_outage_no_alert` (fixture: the 10-18 shape, 11 failures in 2 h then success).
 - **Live:** an anomaly row `type` from `fire_stuck_signal` for `nm_channel_dead` exists only if a channel was degraded for more than N h; the D3 drill proves the path.
 
 ### D3. Close + live drill
@@ -157,14 +184,25 @@ Acceptance:
 
 | Knob | Default | Rung | Why |
 |---|---|---|---|
-| `NM_CHANNEL_DEAD_ALERT_H` | **6** | Module constant (NM constants block, beside `NM_NO_ROUTE_TRIPWIRE_*` `:293`) | Lowest measured iMessage rate 22 sends/day ≈ 0.9/h, so 6 h holds about 5 attempts even on a quiet day; long enough to skip the 10-18 2 h transient; short enough that the 11-22 17:12 outage would have opened at 23:12 (persistent notification then, phone-app alert at the first failure after 07:00 on 11-23, about 1.5 days earlier than nothing at all). Operator would rarely tune it; a change should be reviewed. **0 = feature off** (no episode, no Store writes). |
+| `NM_CHANNEL_DEAD_ALERT_H` | **6** | Module constant (NM constants block, beside `NM_NO_ROUTE_TRIPWIRE_*` `:293`) | Lowest measured iMessage rate 22 sends/day ≈ 0.9/h, so 6 h holds about 5 attempts even on a quiet day; long enough to skip the 10-18 2 h transient; short enough that the 11-22 17:12 outage would have opened at 23:12 (timing detail under "Retry timing" below). Operator would rarely tune it; a change should be reviewed. **0 = feature off** (no episode, no Store writes). |
 | `NM_CHANNEL_DEAD_MIN_FAILURES` | **3** | Module constant | Names the existing degraded threshold; guards a channel that sent once 6 h ago and failed once now. Applies to the episode only; the inline `3` at `:7186/:7160` is left as is (non-goal). |
-| Alert kill switch | existing | `fire_stuck_signal` kill switch `_stuck_signal_nm.py:70-87` | Reused; turning it off suppresses the HIGH alert but not the persistent notification. |
+| Alert kill switch | existing | `fire_stuck_signal` kill switch `_stuck_signal_nm.py:70-87` (`CONF_STUCK_SIGNAL_NM_ENABLED`) | Reused, not dedicated: turning it off silences EVERY stuck-signal alert, not just this one, and leaves the persistent notification and anomaly row. |
+
+**Kill semantics (review L2).** `NM_CHANNEL_DEAD_ALERT_H = 0` is the only feature-specific off switch (no episode,
+no Store writes, no persistent notification, no anomaly row).
+
+**Retry timing (review M5).** No timer is needed: evaluation runs on each failure of C. So a dropped emit is retried only
+on C's next failure: after quiet hours, the alert waits for C's first failed send after 07:00 (for a digest-only
+channel, the next digest flush). Silence (`notification_manager.py:1777`) and boot-settle (`:1825-1853`) also drop the
+emit, and the same retry covers both. Cost per retry: one `fire_stuck_signal` call and one debug log line per failure of
+C while the episode is open and unalerted. The 11-22 outage would have opened at 23:12 (persistent notification and
+anomaly row then) and delivered the phone-app alert at iMessage's first failed send after 07:00 on 11-23.
 
 ## 8. Non-goals
 - No change to routing, severity floors, `async_notify` signature, or `_send_*` bodies.
 - No recovery ("channel is back") message. Park: revisit if the operator asks.
-- tts, lights, panels: not message channels, out of scope. Perimeter's legacy direct notify (`perimeter_alert.py:4446`) records no health; out of scope.
+- tts, lights, panels: not message channels, out of scope.
+- **Known detection blind spot (review L3):** perimeter's legacy direct notify (`perimeter_alert.py:4446`, `blocking=False`, bypasses NM) records no channel health, so a channel dead only on that path is invisible to this detector.
 - No fix for `notification_log delivered=1` semantics on multi-channel rows.
 - Not detecting silent provider-side drops on pushover/companion (no failure signal exists).
 - Not renaming the inline `3` in `_update_channel_health` / `_set_panel_health`.
@@ -178,6 +216,10 @@ sites; detection and emission are single sites. One adversarial plan review befo
 hours/boot-settle interaction). Ship at an attended deploy, not while the house sleeps.
 
 ## 10. Open questions for the operator
+
+**Status: routing answer PENDING from the operator.** (A) phone app plus HA persistent notification, as built under
+current gates; or (B) lower WhatsApp's severity floor to HIGH, a setting change. Neither option changes the code; the
+build proceeds either way.
 - **Q1.** Under your live gates a HIGH alert reaches only the phone app (WhatsApp, Pushover and iMessage are gated at
   CRITICAL), and at night it waits until the first failed send after quiet hours end. The persistent notification in HA
   appears immediately. If you want WhatsApp too, lower the WhatsApp severity floor to HIGH (a setting, no code; it also
