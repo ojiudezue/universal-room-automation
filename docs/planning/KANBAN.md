@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-27T02:56:00-06:00_ - _Data commit: `7dfb04a83206`_ - _last_reconciled: 2026-11-27_
+_Generated: 2026-11-27T02:59:06-06:00_ - _Data commit: `0c16d9e1c0e3`_ - _last_reconciled: 2026-11-27_
 
 
 ## Columns
@@ -982,7 +982,7 @@ _created 2026-10-16 02:20 · updated 2026-11-26 02:05 · initial_
 
 ### `NM-IMESSAGE-OUTBOUND-DEAD-1` - Every iMessage URA has tried to send since 11-22 17:12 has failed ("Chat does not exist"), and nothing told the operator — _#6 · WSJF 8.5 · v7 tc8 u2 /e2_
 thread: **notifications** - status: **waiting_operator** - approval: **explicit**
-_created 2026-11-27 02:02 · updated 2026-11-27 03:02 · refined_
+_created 2026-11-27 02:02 · updated 2026-11-27 02:59 · refined_
 - **Problem / Solution:**
   - Problem: since about 5 pm on Saturday 11-22 the iMessage channel has delivered nothing, and nothing told you. HA reached BlueBubbles through the public web address. On 11-22 the homelab turned on Cloudflare "Always Use HTTPS" for that do...
 - **Origin:** 2026-11-27 - overnight pass 11-27, found while re-checking the WhatsApp/app diag ask (NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1)
