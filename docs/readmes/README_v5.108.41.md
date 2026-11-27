@@ -54,11 +54,18 @@ suite on the fix-up: 23889 passed, 0 new failures. Record: `docs/reviews/code-re
 - Provider-side silent drops on pushover/companion have no failure signal, so they are not detected.
 - No "channel is back" message.
 
-## Live validation (prospective)
+## Validated 2026-11-27 (restart 11:48)
 
-- **Live:** NM loads with no errors from the new code in the log after restart.
-- **Live:** `channel_status` shows `failing_since: null` for all four channels (all healthy).
-- **Live:** the Store `.storage/universal_room_automation.nm_channel_dead` is absent or holds no open episode.
-- **Live:** no `ura_nm_channel_dead_*` persistent notification exists.
-- **In-suite only:** the alert path itself (threshold, restart, quiet-hours retry, self-route, second outage same day).
-  Inducing a 6 h channel failure on the live house is not acceptable.
+Read over `ssh ha` with the supervisor API, because the HA MCP server was down this session. The Marketplace install
+used its websocket commands `marketplace/repository/refresh` and `marketplace/repository/install`.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| New code installed and running | PASS | `update.universal_room_automation_update` `installed_version` = v5.108.41; `/config/custom_components/universal_room_automation/manifest.json` version v5.108.41 |
+| NM loads with no errors | PASS | Core log from 11:40 through the 11:48 restart to the check: zero `ERROR` lines from `universal_room_automation`, none mentioning `notification_manager` or `channel_dead` |
+| `channel_status` shows `failing_since` | PASS | `sensor.ura_notification_manager_notification_channel_status` = `ok`; pushover, companion, whatsapp and imessage each show `status: ok, failures: 0, failing_since: null` (tts, lights and panels carry no `failing_since`, as designed) |
+| No open episode in the Store | PASS | `.storage/universal_room_automation.nm_channel_dead` absent (written only on a first failure) |
+| No dead-channel HA notification | PASS | no `persistent_notification.*channel_dead*` entity |
+| Alert path (threshold, restart, quiet-hours retry, self-route, second outage same day) | in-suite only | 25 tests in `quality/tests/test_nm_dead_channel_alert.py`. Inducing a 6 h channel failure on the live house is not acceptable |
+
+Boot note: `last_success` is null on every channel right after restart. It is in-memory and fills on the first send.
