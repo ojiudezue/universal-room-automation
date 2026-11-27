@@ -100,6 +100,7 @@ from ..const import (
     DEFAULT_NM_TTS_SEVERITY,
     DEFAULT_NM_WHATSAPP_SEVERITY,
     DOMAIN,
+    NM_DIGEST_CHANNELS,
     CONF_NM_BUCKET_CAPACITY,
     CONF_NM_BUCKET_REFILL_PER_MIN,
     CONF_NM_DRY_RUN,
@@ -292,6 +293,38 @@ NM_DIGEST_FALLBACK_CHANNEL = "digest"
 # next window will re-trip if the hole persists).
 NM_NO_ROUTE_TRIPWIRE_COUNT = 20
 NM_NO_ROUTE_TRIPWIRE_WINDOW_S = 86400
+
+# NM-IMESSAGE-OUTBOUND-DEAD-1 (PLANNING_nm_dead_channel_alert.md): dead
+# message-channel alert. Rung-1 module constants (reviewed change): they
+# bound an integrity alarm, not operator policy.
+# NM_CHANNEL_DEAD_ALERT_H: hours a message channel (pushover / companion /
+# whatsapp / imessage) must fail every send, measured from its first failure
+# after its last success and across restarts, before NM opens a dead-channel
+# episode (persistent notification + anomaly row + one HIGH alert).
+# 6 h skips the 2 h 10-18 transient and still holds ~5 sends on iMessage's
+# quietest measured day. KILL SWITCH: 0 = feature off (no episode, no Store
+# writes, no persistent notification, no anomaly row).
+NM_CHANNEL_DEAD_ALERT_H = 6
+# NM_CHANNEL_DEAD_MIN_FAILURES: consecutive failures also required, so one
+# send 6 h ago plus one failure now is not "dead". Same value as the inline
+# degraded threshold in _update_channel_health (left unnamed there).
+NM_CHANNEL_DEAD_MIN_FAILURES = 3
+NM_CHANNEL_DEAD_KIND = "nm_channel_dead"
+NM_CHANNEL_DEAD_STORE_KEY = f"{DOMAIN}.nm_channel_dead"
+NM_CHANNEL_DEAD_PN_PREFIX = "ura_nm_channel_dead_"
+_NM_CHANNEL_DEAD_ENABLE_KEYS = {
+    "pushover": CONF_NM_PUSHOVER_ENABLED,
+    "companion": CONF_NM_COMPANION_ENABLED,
+    "whatsapp": CONF_NM_WHATSAPP_ENABLED,
+    "imessage": CONF_NM_IMESSAGE_ENABLED,
+}
+
+
+def _dead_channel_store(hass: Any) -> Any:
+    """Store for the dead-channel failure clock (pattern room_entities.py)."""
+    from homeassistant.helpers.storage import Store  # noqa: PLC0415
+
+    return Store(hass, 1, NM_CHANNEL_DEAD_STORE_KEY)
 
 # Echo-loop guard knobs (2026-08-05 BlueBubbles echo incident). Rung-1
 # module constants: changing these should require review — they bound a
@@ -521,6 +554,25 @@ class NotificationManager:
             # status setter are not silently dropped for an unseeded key.
             "panels": {"status": "off", "last_success": None, "failures": 0},
         }
+        # NM-IMESSAGE-OUTBOUND-DEAD-1: dead message-channel episode state.
+        # _dead_clock[C] = {"failing_since": iso, "consecutive_failures": n,
+        # "opened_at": iso|None, "alerted_at": iso|None}; persisted in the
+        # NM_CHANNEL_DEAD_STORE_KEY Store on transitions only. Absent = healthy.
+        for _ch in NM_DIGEST_CHANNELS:
+            self._channel_health[_ch]["failing_since"] = None
+        self._dead_clock: dict[str, dict[str, Any]] = {}
+        # Outcomes recorded before the Store load completes (review M2).
+        self._dead_clock_loaded: bool = False
+        self._dead_pending: dict[str, dict[str, Any]] = {}
+        # RAM-only re-entrancy guard (review H2): set synchronously before
+        # the emit task is scheduled, cleared in the task's finally.
+        self._dead_emit_in_flight: dict[str, bool] = {}
+        self._dead_tasks: set[asyncio.Task] = set()
+        self._dead_gen: int = 0
+        self._dead_store_obj: Any = None
+        self._dead_saved_gen: int = 0
+        # Injectable clock (tests pass a fake; never wall time in tests).
+        self._dead_now = dt_util.utcnow
         # Halo S1b: panel channel state. Ledger is in memory only (leases are
         # TTL-bounded on the Halo side); keyed by lease id ->
         # {"areas": [area_id...], "level": str, "expires_at": utc ts}.
@@ -1403,6 +1455,11 @@ class NotificationManager:
         # Recover state from DB
         await self._recover_state_from_db()
 
+        # NM-IMESSAGE-OUTBOUND-DEAD-1: load the persisted dead-channel clock
+        # (merges any outcomes recorded before this point) and close
+        # episodes of channels that are no longer enabled.
+        await self._dead_load()
+
         # Set up digest timers
         self._setup_digest_timers()
 
@@ -1613,6 +1670,16 @@ class NotificationManager:
             if not _task.done():
                 _task.cancel()
         self._panel_tasks.clear()
+
+        # NM-IMESSAGE-OUTBOUND-DEAD-1: cancel in-flight emits, then flush any
+        # unsaved dead-channel clock so a restart resumes the episode.
+        for _task in list(self._dead_tasks):
+            if not _task.done():
+                _task.cancel()
+        self._dead_tasks.clear()
+        self._dead_emit_in_flight.clear()
+        if self._dead_dirty and self._dead_clock_loaded:
+            await self._dead_save_now()
 
         _LOGGER.info("Notification Manager stopped")
 
@@ -5338,6 +5405,12 @@ class NotificationManager:
                         "NM materialized-matrix rebuild failed on refresh",
                         exc_info=True,
                     )
+                # NM-IMESSAGE-OUTBOUND-DEAD-1 (review M4): a channel turned
+                # off mid-episode closes its episode.
+                try:
+                    self._dead_sweep_unconfigured()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("NM dead-channel sweep failed", exc_info=True)
                 return
 
     # =========================================================================
@@ -7181,6 +7254,356 @@ class NotificationManager:
             health["failures"] = health.get("failures", 0) + 1
             if health["failures"] >= 3:
                 health["status"] = "degraded"
+        # NM-IMESSAGE-OUTBOUND-DEAD-1: the single detection hook, message
+        # channels only (tts / lights / panels are out of scope).
+        if channel in NM_DIGEST_CHANNELS:
+            self._dead_on_outcome(channel, success)
+
+    # =========================================================================
+    # NM-IMESSAGE-OUTBOUND-DEAD-1: dead message-channel episode
+    # =========================================================================
+
+    def _dead_on_outcome(self, channel: str, success: bool) -> None:
+        """Advance channel's persisted failure clock; open an episode at N h.
+
+        Sync (called from the sync producer). All async work goes through
+        tracked tasks (_dead_spawn). Never raises into the send path.
+        """
+        try:
+            if NM_CHANNEL_DEAD_ALERT_H <= 0:
+                return
+            now = self._dead_now()
+            if not self._dead_clock_loaded:
+                buf = self._dead_pending.setdefault(
+                    channel,
+                    {"success": False, "first_fail": None, "failures": 0},
+                )
+                if success:
+                    buf.update(success=True, first_fail=None, failures=0)
+                else:
+                    if buf["first_fail"] is None:
+                        buf["first_fail"] = now.isoformat()
+                    buf["failures"] += 1
+                return
+            st = self._dead_clock.get(channel)
+            if success:
+                if st is None:
+                    return  # no-op path: zero Store writes
+                self._dead_close(channel)
+                return
+            if st is None:
+                st = {
+                    "failing_since": now.isoformat(),
+                    "consecutive_failures": 0,
+                    "opened_at": None,
+                    "alerted_at": None,
+                }
+                self._dead_clock[channel] = st
+                self._dead_schedule_save()
+            st["consecutive_failures"] = int(st.get("consecutive_failures", 0)) + 1
+            # The count is not a transition: mark it unsaved (teardown
+            # flushes it) without a per-send Store write.
+            self._dead_gen += 1
+            self._channel_health[channel]["failing_since"] = st["failing_since"]
+            self._dead_evaluate(channel, now)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("NM dead-channel clock update failed", exc_info=True)
+
+    def _dead_evaluate(self, channel: str, now: datetime) -> None:
+        """Schedule the episode emit when the threshold is crossed."""
+        st = self._dead_clock.get(channel)
+        if st is None or st.get("alerted_at") is not None:
+            return
+        if self._dead_emit_in_flight.get(channel):
+            return
+        if int(st.get("consecutive_failures", 0)) < NM_CHANNEL_DEAD_MIN_FAILURES:
+            return
+        since = self._dead_parse(st.get("failing_since"))
+        if since is None:
+            return
+        if now - since < timedelta(hours=NM_CHANNEL_DEAD_ALERT_H):
+            return
+        self._dead_emit_in_flight[channel] = True
+        if not self._dead_spawn(
+            self._maybe_open_dead_channel_episode(channel, st["failing_since"]),
+            f"ura_nm_channel_dead_{channel}",
+        ):
+            self._dead_emit_in_flight.pop(channel, None)
+
+    def _dead_spawn(self, coro: Any, name: str) -> bool:
+        """Run coro as a tracked background task (cancelled in teardown)."""
+        task = self.hass.async_create_background_task(coro, name)
+        if isinstance(task, asyncio.Task):
+            self._dead_tasks.add(task)
+            task.add_done_callback(self._dead_tasks.discard)
+            return True
+        coro.close()  # no loop-backed task (stub hass): never leak the coro
+        return False
+
+    def _dead_close(self, channel: str) -> None:
+        """Close C's episode: clear state + Store entry, dismiss the PN."""
+        self._dead_clock.pop(channel, None)
+        self._channel_health[channel]["failing_since"] = None
+        self._dead_schedule_save()
+        self._dead_spawn(
+            self._dead_dismiss(channel), f"ura_nm_channel_dead_dismiss_{channel}",
+        )
+
+    async def _dead_dismiss(self, channel: str) -> None:
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification", "dismiss",
+                {"notification_id": f"{NM_CHANNEL_DEAD_PN_PREFIX}{channel}"},
+                blocking=False,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("NM dead-channel dismiss failed", exc_info=True)
+
+    def _dead_snapshot(self) -> dict[str, Any]:
+        return {"channels": {c: dict(s) for c, s in self._dead_clock.items()}}
+
+    @property
+    def _dead_dirty(self) -> bool:
+        """True while a transition has not reached the Store yet."""
+        return self._dead_saved_gen < self._dead_gen
+
+    def _dead_schedule_save(self) -> None:
+        self._dead_gen += 1
+        self._dead_spawn(self._dead_save_now(), "ura_nm_channel_dead_save")
+
+    async def _dead_save_now(self) -> None:
+        gen = self._dead_gen
+        try:
+            # One Store per NM (review B): HA's Store write lock is
+            # per-instance and writes its latest data, so overlapping saves
+            # serialise and the newest snapshot lands last.
+            await self._dead_store().async_save(self._dead_snapshot())
+            self._dead_saved_gen = max(self._dead_saved_gen, gen)
+        except Exception:  # noqa: BLE001 — Store failure falls back to RAM
+            _LOGGER.debug("NM dead-channel Store save failed", exc_info=True)
+
+    def _dead_store(self) -> Any:
+        """The single Store instance for this NM (load, saves, flush)."""
+        if self._dead_store_obj is None:
+            self._dead_store_obj = _dead_channel_store(self.hass)
+        return self._dead_store_obj
+
+    @staticmethod
+    def _dead_parse(value: Any) -> datetime | None:
+        """Parse a stored ISO timestamp; naive -> UTC; bad -> None."""
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    def _dead_validate(self, st: Any) -> dict[str, Any] | None:
+        """Validate one restored channel entry (review A); None = drop."""
+        if not isinstance(st, dict):
+            return None
+        since = self._dead_parse(st.get("failing_since"))
+        count = st.get("consecutive_failures")
+        if (
+            since is None or isinstance(count, bool)
+            or not isinstance(count, int) or count < 1
+        ):
+            return None
+        out: dict[str, Any] = {
+            "failing_since": since.isoformat(),
+            "consecutive_failures": count,
+        }
+        for key in ("opened_at", "alerted_at"):
+            raw = st.get(key)
+            if raw is None:
+                out[key] = None
+                continue
+            parsed = self._dead_parse(raw)
+            if parsed is None:
+                return None
+            out[key] = parsed.isoformat()
+        return out
+
+    async def _dead_load(self) -> None:
+        """Load the persisted clock; never stops NM setup (review A)."""
+        try:
+            await self._dead_load_inner()
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "NM dead-channel clock load failed; starting with an empty "
+                "clock", exc_info=True,
+            )
+            self._dead_clock.clear()
+            self._dead_pending.clear()
+            self._dead_clock_loaded = True
+            for ch in NM_DIGEST_CHANNELS:
+                self._channel_health[ch]["failing_since"] = None
+
+    async def _dead_load_inner(self) -> None:
+        """Load the persisted clock and merge pre-load outcomes (review M2)."""
+        if NM_CHANNEL_DEAD_ALERT_H <= 0:
+            self._dead_pending.clear()
+            self._dead_clock_loaded = True
+            return
+        stored: dict[str, Any] = {}
+        try:
+            data = await self._dead_store().async_load() or {}
+            stored = dict(data.get("channels") or {})
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("NM dead-channel Store load failed", exc_info=True)
+        changed = False
+        dismiss: list[str] = []
+        for ch in NM_DIGEST_CHANNELS:
+            raw = stored.get(ch)
+            if raw is not None:
+                valid = self._dead_validate(raw)
+                if valid is None:
+                    _LOGGER.warning(
+                        "NM dead-channel: dropping invalid stored entry for "
+                        "%s: %r", ch, raw,
+                    )
+                    changed = True
+                else:
+                    self._dead_clock[ch] = valid
+            buf = self._dead_pending.get(ch)
+            if not buf:
+                continue
+            changed = True
+            if buf["success"]:
+                # A buffered success wins: the persisted episode is over.
+                if self._dead_clock.pop(ch, None) is not None:
+                    dismiss.append(ch)
+            if buf["failures"] <= 0:
+                continue
+            cur = self._dead_clock.get(ch)
+            if cur is None:
+                self._dead_clock[ch] = {
+                    "failing_since": buf["first_fail"],
+                    "consecutive_failures": buf["failures"],
+                    "opened_at": None,
+                    "alerted_at": None,
+                }
+            else:
+                buf_t = self._dead_parse(buf["first_fail"])
+                cur_t = self._dead_parse(cur["failing_since"])
+                if buf_t is not None and cur_t is not None and buf_t < cur_t:
+                    cur["failing_since"] = buf["first_fail"]
+                cur["consecutive_failures"] += buf["failures"]
+        self._dead_pending.clear()
+        self._dead_clock_loaded = True
+        for ch in NM_DIGEST_CHANNELS:
+            st = self._dead_clock.get(ch)
+            self._channel_health[ch]["failing_since"] = (
+                st["failing_since"] if st else None
+            )
+        for ch in dismiss:
+            self._dead_spawn(
+                self._dead_dismiss(ch), f"ura_nm_channel_dead_dismiss_{ch}",
+            )
+        if changed:
+            self._dead_schedule_save()
+        self._dead_sweep_unconfigured()
+        now = self._dead_now()
+        for ch in list(self._dead_clock):
+            self._dead_evaluate(ch, now)
+
+    def _dead_sweep_unconfigured(self) -> None:
+        """Close episodes of channels now disabled (review M4): a disabled
+        channel never sends, never succeeds, so it would never close."""
+        if not self._dead_clock_loaded:
+            return
+        for ch, conf_key in _NM_CHANNEL_DEAD_ENABLE_KEYS.items():
+            if ch in self._dead_clock and not self._config.get(conf_key, False):
+                self._dead_close(ch)
+
+    async def _dead_write_anomaly(self, channel: str, st: dict[str, Any]) -> None:
+        try:
+            from .anomaly_event import (  # noqa: PLC0415
+                AnomalyEvent,
+                AnomalySeverity,
+                AnomalyType,
+                build_context_json,
+            )
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                return
+            n = int(st.get("consecutive_failures", 0))
+            await database.save_anomaly_event(AnomalyEvent(
+                coordinator="notification",
+                type="nm.channel_dead",
+                severity=AnomalySeverity.WARNING,
+                anomaly_type=AnomalyType.POINT_IN_TIME,
+                detected_at=self._dead_now().isoformat(),
+                payload=build_context_json(
+                    source_signal="NM_CHANNEL_DEAD",
+                    extra={
+                        "channel": channel,
+                        "failing_since": st.get("failing_since"),
+                        "consecutive_failures": n,
+                        "threshold_h": NM_CHANNEL_DEAD_ALERT_H,
+                    },
+                ),
+                observed_value=float(n),
+                sample_size=n,
+            ))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("NM dead-channel anomaly write failed", exc_info=True)
+
+    async def _maybe_open_dead_channel_episode(
+        self, channel: str, failing_since: str,
+    ) -> None:
+        """Open C's episode: anomaly row + persistent notification (once per
+        episode, whatever happens to the alert), then one HIGH alert via
+        fire_stuck_signal keyed on the episode (review H1)."""
+        try:
+            st = self._dead_clock.get(channel)
+            if st is None or st.get("failing_since") != failing_since:
+                return  # recovered (or a new episode) since scheduling
+            n = int(st.get("consecutive_failures", 0))
+            diagnosis = (
+                f"{channel} has failed every send since {failing_since} "
+                f"({n} tries). Alerts still go out on the other channels."
+            )
+            if st.get("opened_at") is None:
+                st["opened_at"] = self._dead_now().isoformat()
+                self._dead_schedule_save()
+                await self._dead_write_anomaly(channel, st)
+                try:
+                    await self.hass.services.async_call(
+                        "persistent_notification", "create",
+                        {
+                            "title": f"Notification channel dead: {channel}",
+                            "message": diagnosis,
+                            "notification_id": (
+                                f"{NM_CHANNEL_DEAD_PN_PREFIX}{channel}"
+                            ),
+                        },
+                        blocking=False,
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("NM dead-channel PN failed", exc_info=True)
+            from ._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+
+            ok = await fire_stuck_signal(
+                self.hass,
+                NM_CHANNEL_DEAD_KIND,
+                (channel, failing_since),
+                diagnosis,
+                remedy=(
+                    f"Check the {channel} integration and its service. "
+                    "The alert closes on its next successful send."
+                ),
+                title_override=f"Notification channel dead: {channel}",
+                severity="HIGH",
+            )
+            if ok and self._dead_clock.get(channel) is st:
+                st["alerted_at"] = self._dead_now().isoformat()
+                self._dead_schedule_save()
+        finally:
+            self._dead_emit_in_flight.pop(channel, None)
 
     def _update_hourly_count(self) -> None:
         """Track notification count for the current hour (anomaly detection)."""
