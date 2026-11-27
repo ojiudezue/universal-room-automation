@@ -264,8 +264,8 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <header class="top">
 <h1>URA://DECISIONS<span class="gen">GENERATED - waiting_operator cards from kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-11-26T02:43:08-06:00</b></span>
-<span>data <b>72feb7ca92b5</b></span>
+<span>generated <b>2026-11-27T02:07:02-06:00</b></span>
+<span>data <b>b8e031b5a9f4</b></span>
 <span>reconciled <b>2026-11-27</b></span>
 </div></header>
 <section class="decisions" id="decisions" aria-labelledby="decisions-h">
@@ -656,20 +656,6 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <form class="answer"><label for="ans-ARRIVAL-ENGINE-S8-1">Your answer for ARRIVAL-ENGINE-S8-1</label><textarea id="ans-ARRIVAL-ENGINE-S8-1" rows="2" placeholder="Your answer for ARRIVAL-ENGINE-S8-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
-<article class="decision" data-id="HA-CORE-MEMORY-GROWTH-1">
-<div class="dhd">
-<span class="id">HA-CORE-MEMORY-GROWTH-1</span>
-<span class="since">waiting since 2026-11-26 02:05</span>
-</div>
-<div class="dtitle">HA NUC memory is ~87% with swap full: find what grew (Core 5.0 GB) before blaming URA or anything else</div>
-<p class="ask"><b>PICK</b> (attended): A (recommended) before the next restart, I read the HA error_log for 11-25 14:30-15:10 (the log tool was down overnight) and identify the Android 13 Chrome tablet(s) in the &#x27;Connection lost&#x27; reconnect loop (wall panels are the likely ones) so you can reload or fix them, then compare Core&#x27;s level 6 h later; the pending restart resets Core, so the evidence must be read first. B restart first and only watch whether the step recurs. Headroom now: 3.7 GB available, swap 2.0 of 3.9 GB, so not urgent overnight.</p>
-<div class="picks">
-<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>(recommended) before the next restart, I read the HA error_log for...</button>
-<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>restart first and only watch whether the step recurs. Headroom now:...</button>
-</div>
-<form class="answer"><label for="ans-HA-CORE-MEMORY-GROWTH-1">Your answer for HA-CORE-MEMORY-GROWTH-1</label><textarea id="ans-HA-CORE-MEMORY-GROWTH-1" rows="2" placeholder="Your answer for HA-CORE-MEMORY-GROWTH-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
-<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
-</article>
 <article class="decision" data-id="INTERIOR-PATH-ZERO-1120-1">
 <div class="dhd">
 <span class="id">INTERIOR-PATH-ZERO-1120-1</span>
@@ -748,6 +734,20 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <div class="dtitle">Every iMessage URA has tried to send since 11-22 17:12 has failed (&quot;Chat does not exist&quot;), and nothing told the operator</div>
 <p class="ask"><b>DO</b> (at the Mac mini, 2 min): open Messages and send yourself one text from the Mac (this recreates the self chat), then check BlueBubbles server shows no red errors -&gt; I read the BlueBubbles log for a 200 on the next URA send and the imessage channel_status going back to ok, and close the outage half. Then APPROVE the small dead-channel alert (NM tells you on a working channel when one channel has failed every send for N hours) -&gt; I build it to review.</p>
 <form class="answer"><label for="ans-NM-IMESSAGE-OUTBOUND-DEAD-1">Your answer for NM-IMESSAGE-OUTBOUND-DEAD-1</label><textarea id="ans-NM-IMESSAGE-OUTBOUND-DEAD-1" rows="2" placeholder="Your answer for NM-IMESSAGE-OUTBOUND-DEAD-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="HA-CORE-MEMORY-GROWTH-1">
+<div class="dhd">
+<span class="id">HA-CORE-MEMORY-GROWTH-1</span>
+<span class="since">waiting since 2026-11-27 02:07</span>
+</div>
+<div class="dtitle">HA NUC memory is ~87% with swap full: find what grew (Core 5.0 GB) before blaming URA or anything else</div>
+<p class="ask"><b>PICK</b> (attended): A (recommended) before the next restart, I read the HA error_log for 11-25 14:30-15:10 (the log tool was down overnight) and identify the Android 13 Chrome tablet(s) in the &#x27;Connection lost&#x27; reconnect loop (wall panels are the likely ones) so you can reload or fix them, then compare Core&#x27;s level 6 h later; the pending restart resets Core, so the evidence must be read first. B restart first and only watch whether the step recurs. Headroom now: 3.7 GB available, swap 2.0 of 3.9 GB, so not urgent overnight.</p>
+<div class="picks">
+<button type="button" data-pick="A" title="send: PICK A"><b>PICK A</b>(recommended) before the next restart, I read the HA error_log for...</button>
+<button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>restart first and only watch whether the step recurs. Headroom now:...</button>
+</div>
+<form class="answer"><label for="ans-HA-CORE-MEMORY-GROWTH-1">Your answer for HA-CORE-MEMORY-GROWTH-1</label><textarea id="ans-HA-CORE-MEMORY-GROWTH-1" rows="2" placeholder="Your answer for HA-CORE-MEMORY-GROWTH-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
 </section>
