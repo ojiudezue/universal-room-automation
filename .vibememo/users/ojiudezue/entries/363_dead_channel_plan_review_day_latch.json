@@ -1,0 +1,14 @@
+{
+  "format_version": "2.1",
+  "entry_id": "363",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-27T08:59:00Z",
+  "type": "decision",
+  "weight": "moderate",
+  "title": "Dead-channel plan review: reusing fire_stuck_signal needs a per-episode key; build dispatched",
+  "summary": "The Tier-2 plan review returned FIX-PLAN. H1: fire_stuck_signal latches once per (kind, key) per day (_stuck_signal_nm.py:203), so a second outage the same day would be silently swallowed; the key became (channel, failing_since). H2: the plan both set and did not set the latch before the await, which left a self-route recursion; it now has a separate in-memory in-flight guard plus the persisted alerted_at. M1-M4: tracked task, Store-load merge, an anomaly row on every episode open, close on channel disable. The plan was amended and committed (0c16d9e1c); the build is in a worktree.",
+  "why": "Reusing a primitive brings in its latch semantics. The stuck-signal helper was built for 'one alert per sensor per day', not 'one per outage', and only an adversarial re-read of the helper caught the mismatch before code existed. Counseling: three card timestamps tonight were typed from felt time; edits now take the clock from date.",
+  "alternatives_considered": [
+    "New bespoke alert sender (rejected: fire_stuck_signal already gives kill switch, retry-on-drop and trip-wire; only the key needed changing)"
+  ]
+}
