@@ -98,7 +98,7 @@ cards:
   thread: notifications
   status: waiting_operator
   created: '2026-11-27 02:02'
-  updated: '2026-11-27 03:00'
+  updated: '2026-11-27 02:55'
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-11-27 ("Approved but how will i receive the alert? WhatsApp ?") - dead-channel alert half'
@@ -181,7 +181,7 @@ cards:
   - 'NM_CHANNEL_DEAD_ALERT_H (module constant, proposed): hours a channel may fail every send before NM tells the operator on a working channel. Decide in the plan, not set here.'
   parsimony: {problem: 'Every iMessage send has failed since 11-22 17:12 and the operator was never told.', verdict: BUILD (operator fix first; the dead-channel alert is a small separate Tier-1/2 NM change, not built overnight because the NM path is regression-prone and 3 cards already sit in review)}
   delivery_answer_2026_11_27: 'Operator asked how the alert arrives (WhatsApp?). Answer given: on every channel that is still working, through NM''s normal routing with the dead channel excluded (in this outage: phone app, Pushover, WhatsApp), at a non-critical severity so quiet hours are respected. Default taken; operator can override.'
-  correction_2026_11_27_0300: 'WRONG: I told the operator the alert would arrive by phone app, Pushover and WhatsApp. Live Coordinator Manager config (read 03:00): nm_whatsapp/pushover/imessage_severity = CRITICAL, nm_companion_severity = HIGH, quiet hours 22:00-07:00. So a HIGH alert reaches only the phone app, and is held during quiet hours. The plan adds an HA persistent notification raised immediately on every outage so it is never lost.'
+  correction_2026_11_27_0255: 'WRONG: I told the operator the alert would arrive by phone app, Pushover and WhatsApp. Live Coordinator Manager config (read 02:55): nm_whatsapp/pushover/imessage_severity = CRITICAL, nm_companion_severity = HIGH, quiet hours 22:00-07:00. So a HIGH alert reaches only the phone app, and is held during quiet hours. The plan adds an HA persistent notification raised immediately on every outage so it is never lost.'
   constraints:
   - 'Channel health is in memory only (notification_manager.py:513, _update_channel_health :7163) and resets on every restart; with about one restart a day the failing-since time MUST persist across restarts or the alert rarely fires.'
   - 'The alert must not go out on the dead channel itself, and must not repeat more than once per outage (re-arm on the channel''s first success).'

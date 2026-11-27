@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-27T02:51:55-06:00_ - _Data commit: `79be41884456`_ - _last_reconciled: 2026-11-27_
+_Generated: 2026-11-27T02:55:48-06:00_ - _Data commit: `5051206becb3`_ - _last_reconciled: 2026-11-27_
 
 
 ## Columns
@@ -982,7 +982,7 @@ _created 2026-10-16 02:20 · updated 2026-11-26 02:05 · initial_
 
 ### `NM-IMESSAGE-OUTBOUND-DEAD-1` - Every iMessage URA has tried to send since 11-22 17:12 has failed ("Chat does not exist"), and nothing told the operator — _#6 · WSJF 8.5 · v7 tc8 u2 /e2_
 thread: **notifications** - status: **waiting_operator** - approval: **explicit**
-_created 2026-11-27 02:02 · updated 2026-11-27 03:00 · refined_
+_created 2026-11-27 02:02 · updated 2026-11-27 02:55 · refined_
 - **Problem / Solution:**
   - Problem: since about 5 pm on Saturday 11-22 the iMessage channel has delivered nothing, and nothing told you. HA reached BlueBubbles through the public web address. On 11-22 the homelab turned on Cloudflare "Always Use HTTPS" for that do...
 - **Origin:** 2026-11-27 - overnight pass 11-27, found while re-checking the WhatsApp/app diag ask (NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1)
@@ -1000,7 +1000,7 @@ _created 2026-11-27 02:02 · updated 2026-11-27 03:00 · refined_
   - `hypotheses_unverified`: WRONG, refuted 11-27 02:41 (see correction_2026_11_27_0241). Kept as the record: the self chat with your own number was deleted in Messages around 17:00 on 11-22; Messages on the Mac mini lost its iMessage session for sending; or a BlueB...
   - `adjacency`: Swept the board (grep chat does not exist / imessage degraded / chat/new), BACKLOG.md and the NM cards. NM-BB-CHATGUID-SELFSEND-1 has a 10-18 send-failure INSTANCE (11 failures in 2 h, then recovered); this is a different outage (4.5 day...
   - `delivery_answer_2026_11_27`: Operator asked how the alert arrives (WhatsApp?). Answer given: on every channel that is still working, through NM's normal routing with the dead channel excluded (in this outage: phone app, Pushover, WhatsApp), at a non-critical severit...
-  - `correction_2026_11_27_0300`: WRONG: I told the operator the alert would arrive by phone app, Pushover and WhatsApp. Live Coordinator Manager config (read 03:00): nm_whatsapp/pushover/imessage_severity = CRITICAL, nm_companion_severity = HIGH, quiet hours 22:00-07:00...
+  - `correction_2026_11_27_0255`: WRONG: I told the operator the alert would arrive by phone app, Pushover and WhatsApp. Live Coordinator Manager config (read 02:55): nm_whatsapp/pushover/imessage_severity = CRITICAL, nm_companion_severity = HIGH, quiet hours 22:00-07:00...
 
 ### `LANDSCAPE-RETRY-POSTFIX-CHECK-1` - Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline — _#7 · WSJF 8.0 · v3 tc3 u2 /e1_
 thread: **lighting** - status: **waiting_operator**
