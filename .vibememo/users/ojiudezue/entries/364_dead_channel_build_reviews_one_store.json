@@ -1,0 +1,14 @@
+{
+  "format_version": "2.1",
+  "entry_id": "364",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-27T11:40:00Z",
+  "type": "decision",
+  "weight": "moderate",
+  "title": "Dead-channel build reviews: one Store per NM, validated restore; ship-ready pending attended deploy",
+  "summary": "Tier-2 build reviews A and B both returned SHIP with one MEDIUM each. A-M1: a corrupt Store entry raised out of async_setup and would stop NM starting; restore now validates each entry and a failed load starts empty. B-M1: a fresh HA Store per save shares no write lock, so an older snapshot could land last and resurrect a closed episode after restart (a false HIGH alert); NM now holds one Store. Both fixed in 83b1e70a7 with drilled tests; the orchestrator re-drilled the one-Store fix red. Full suite on the fix-up: 23889 passed, 0 new failures. Review record v5.108.41_nm_dead_channel_alert.md.",
+  "why": "HA's Store serializes writes per instance, not per key, so constructing one per call quietly removes the ordering guarantee. Accepted B-L2 (a dropped alert retries only on the next failure) because the persistent notification and anomaly row fire at episode open regardless. Deploy waits for an attended window because it restarts HA.",
+  "alternatives_considered": [
+    "Debounce saves instead of sharing a Store (rejected: still two instances racing on restart flush)"
+  ]
+}
