@@ -10,7 +10,7 @@ meta:
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
   - {"fid": "HA-CORE-MEMORY-GROWTH-1@2026-11-27T02:07:46", "card_id": "HA-CORE-MEMORY-GROWTH-1", "at": "2026-11-27T02:07:46", "outcome": "measured", "headline": "Home Assistant memory still climbing: 3.0 GB free (3.7 yesterday), swap 2.5 of 3.9 GB. About 4 days of headroom at this rate. Your PICK on the card still stands; read the logs before the next restart."}
-  - {"fid": "NM-IMESSAGE-OUTBOUND-DEAD-1@2026-11-27T02:06:54", "card_id": "NM-IMESSAGE-OUTBOUND-DEAD-1", "at": "2026-11-27T02:06:54", "outcome": "escalated", "headline": "iMessage alerts have not been sending since Sat 11-22 at 5 pm: BlueBubbles on the Mac mini rejects every URA send with 'Chat does not exist' (445 failed). Your alerts still arrived by the app, Pushover and WhatsApp. Fix on the Mac mini: open Messages and send yourself one text. HA notification posted.", "acknowledged": false}
+  - {"fid": "NM-IMESSAGE-OUTBOUND-DEAD-1@2026-11-27T02:06:54", "card_id": "NM-IMESSAGE-OUTBOUND-DEAD-1", "at": "2026-11-27T02:06:54", "outcome": "escalated", "headline": "iMessage alerts have not been sending since Sat 11-22 at 5 pm: BlueBubbles on the Mac mini rejects every URA send with 'Chat does not exist' (445 failed). Your alerts still arrived by the app, Pushover and WhatsApp. CORRECTED 02:41: the cause was the homelab's Cloudflare HTTPS redirect on the BlueBubbles address, not Messages. The fix is to point HA at the Mac mini's local address, which Homelab is doing (BB-HTTPS-REDIRECT-1). Nothing for you to do at the Mac.", "acknowledged": false}
   - {"fid": "WAITING-OP-RECHECK@11-27@2026-11-27T02:06:54", "card_id": "WAITING-OP-RECHECK@11-27", "at": "2026-11-27T02:06:54", "outcome": "measured", "headline": "Re-checked the asks waiting on you; none changed: smoke sensor in Safety still the deleted one, arrival music still off for everyone, no People room pick cleared, perimeter zone sensors unset (dispose-by 11-28), wall-panel alert switch off, no WhatsApp/app 'diag' reply.", "acknowledged": false}
   - {"fid": "PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1@2026-11-27T02:06:54", "card_id": "PERIMETER-CIRCLING-HOP-SEVERITY-COLLIDE-1", "at": "2026-11-27T02:06:54", "outcome": "done", "headline": "Closed: circling escalations now arrive as their own CRITICAL 'Person Escalated' alert instead of being swallowed as a repeat (12 landed tonight 22:31-23:26 at the sonoffwindow camera).", "acknowledged": false}
   - {"fid": "CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1@2026-11-27T02:06:54", "card_id": "CAMERA-STREAM-DEAD-ZONE-AND-CENSUS-1", "at": "2026-11-27T02:06:54", "outcome": "done", "headline": "Closed: a dead panel camera now sends exactly one HIGH alert at 15 min (11-20 outage: one per camera, no duplicates). The missing 'back again' note moved to its own small card.", "acknowledged": false}
@@ -96,23 +96,40 @@ cards:
 - id: NM-IMESSAGE-OUTBOUND-DEAD-1
   title: Every iMessage URA has tried to send since 11-22 17:12 has failed ("Chat does not exist"), and nothing told the operator
   thread: notifications
-  status: waiting_operator
+  status: waiting_me
   created: '2026-11-27 02:02'
-  updated: '2026-11-27 02:02'
-  refinement_status: initial
+  updated: '2026-11-27 02:41'
+  refinement_status: refined
   approval: unreviewed
   tags: [found-during-probe, no-fabrication-verify, live-broken]
   live_broken: true
   rank: {value: 7, time_criticality: 7, effort: 2}
   problem_solution:
-  - 'Problem: since about 5 pm on Saturday 11-22 the iMessage channel has delivered nothing. The BlueBubbles
-    server on the Mac mini answers every URA send with "Chat does not exist", so all 445 attempts through 11-26
-    failed. Alerts still reached you by the phone app, Pushover and WhatsApp, which is why nobody noticed. URA
-    marks the iMessage channel "degraded" on a status sensor but never tells you. Solution: (1) you fix the
-    Messages/BlueBubbles side on the Mac mini (most likely the chat with your own number was deleted or
-    Messages on the Mac mini lost its session, so BlueBubbles can no longer find or create it), then I confirm
-    sends succeed; (2) separately, a small change so a channel that stays dead for hours sends you a message
-    on a channel that still works.'
+  - 'Problem: since about 5 pm on Saturday 11-22 the iMessage channel has delivered nothing, and nothing told
+    you. HA reached BlueBubbles through the public web address. On 11-22 the homelab turned on Cloudflare
+    "Always Use HTTPS" for that domain, so every send was redirected, arrived as an empty request, and
+    BlueBubbles answered "Chat does not exist". All 445 attempts through 11-26 failed. Alerts still reached you
+    by the phone app, Pushover and WhatsApp, which is why nobody noticed. Solution: (1) point HA''s BlueBubbles
+    connection at the Mac mini''s local address instead of the public one (Homelab, infra side), then I confirm
+    a real URA send succeeds; (2) separately, a small change so a channel that fails every send for hours
+    sends you a message on a channel that still works.'
+  correction_2026_11_27_0241: 'HYPOTHESIS REFUTED (Homelab session, reproduced 11-27 ~02:30). The overnight
+    guess (self chat deleted / Messages lost its session / Private API state) was WRONG. chat.db ROWID 729 (the
+    self chat) exists, and three direct test sends at 02:28 reached the phone. ROOT CAUSE: homelab commit
+    850758f (2026-11-22 17:16) turned on Cloudflare "Always Use HTTPS" for phalanxmadrone.com. HA''s bluebubbles
+    config entry host was http://bluebubbles.phalanxmadrone.com, so POST /api/v1/chat/new got a 301, aiohttp
+    re-sent it as a GET with no body, and BlueBubbles routed GET /chat/new to /chat/:guid with guid "new",
+    giving 404 "Chat does not exist!" in about 4 ms. The first failure at 17:12 matches the zone change. Proof:
+    the same payload from inside the HA container gets the 404 through the tunnel and a parsed reply over the
+    LAN. REMEDY: change the bluebubbles host to http://192.168.13.149:1234 (LAN). Homelab tracks the infra side
+    as BB-HTTPS-REDIRECT-1. The old "send yourself a text" DO is dropped.'
+  fix_verification_2026_11_27_0241: 'NOT YET HELD (read-only via ssh ha, 02:41). Homelab reported the host
+    change as applied, but the live /config/.storage/core.config_entries still has host
+    http://bluebubbles.phalanxmadrone.com, and 192.168.13.149 appears in no core.config_entries* file.
+    Backup .bak-pre-bb-host-2026-11-27 mtime 02:40:47; HA rewrote the live file at 02:41:19 without the
+    change. That is the .storage clobber: Core saves its in-memory entries over a file edited while it runs.
+    The BlueBubbles main.log has a URA POST /chat/new at 02:38:42 that still got the 404 in 4 ms. Reported
+    back to Homelab: stop Core, then edit, then start, or use the integration''s reconfigure flow.'
   origin:
     date: '2026-11-27'
     gist: overnight pass 11-27, found while re-checking the WhatsApp/app diag ask (NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1)
@@ -135,7 +152,7 @@ cards:
     so the log alone hides this. LOG GAP: the home-assistant MCP failed to connect this run, so I could not read
     the HA error_log for NM's own 'iMessage send via BlueBubbles failed' lines; the BlueBubbles log is the
     evidence used. Not a false all-clear: the HA-side text is simply unread."
-  hypotheses_unverified: 'Not checked (would need you at the Mac or a live send): the self chat with your own
+  hypotheses_unverified: 'WRONG, refuted 11-27 02:41 (see correction_2026_11_27_0241). Kept as the record: the self chat with your own
     number was deleted in Messages around 17:00 on 11-22; Messages on the Mac mini lost its iMessage session for
     sending; or a BlueBubbles Private API state change (the helper reconnected 11-24 18:15 without fixing it).
     The timing is close to the house Apple ID work on [[NM-BB-CHATGUID-SELFSEND-1]], if any was started that day.'
@@ -146,7 +163,7 @@ cards:
   knobs:
   - 'NM_CHANNEL_DEAD_ALERT_H (module constant, proposed): hours a channel may fail every send before NM tells the operator on a working channel. Decide in the plan, not set here.'
   parsimony: {problem: 'Every iMessage send has failed since 11-22 17:12 and the operator was never told.', verdict: BUILD (operator fix first; the dead-channel alert is a small separate Tier-1/2 NM change, not built overnight because the NM path is regression-prone and 3 cards already sit in review)}
-  next: 'DO (at the Mac mini, 2 min): open Messages and send yourself one text from the Mac (this recreates the self chat), then check BlueBubbles server shows no red errors -> I read the BlueBubbles log for a 200 on the next URA send and the imessage channel_status going back to ok, and close the outage half. Then APPROVE the small dead-channel alert (NM tells you on a working channel when one channel has failed every send for N hours) -> I build it to review.'
+  next: 'Me: once Homelab re-applies the LAN host so it persists (BB-HTTPS-REDIRECT-1), confirm the live core.config_entries host is http://192.168.13.149:1234, then that the next real URA send gets a 200 in ~/Library/Logs/bluebubbles-server/main.log, that the operator receives it, and that imessage channel_status returns to ok. Then close the outage half. The dead-channel alert stays open (4.5 days silent with no warning is the real gap): it needs the operator to APPROVE it before I build it to review.'
   refs:
   - ~/Library/Logs/bluebubbles-server/main.log
   - custom_components/universal_room_automation/domain_coordinators/notification_manager.py
