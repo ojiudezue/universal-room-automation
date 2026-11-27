@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.108.40
+# Universal Room Automation vv5.108.41
 # Build: 2026-01-04
 # File: button.py
 #
