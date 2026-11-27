@@ -98,7 +98,7 @@ cards:
   thread: notifications
   status: planned
   created: '2026-11-27 02:02'
-  updated: '2026-11-27 02:52'
+  updated: '2026-11-27 02:51'
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-11-27 ("Approved but how will i receive the alert? WhatsApp ?") - dead-channel alert half'
