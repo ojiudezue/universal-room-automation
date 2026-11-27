@@ -1,0 +1,15 @@
+{
+  "format_version": "2.1",
+  "entry_id": "359",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-27T08:41:00Z",
+  "type": "correction",
+  "weight": "moderate",
+  "title": "iMessage outage was a Cloudflare HTTPS redirect, not Messages; the LAN-host fix was clobbered by HA",
+  "summary": "The overnight card blamed the Mac mini (deleted self chat or a lost Messages session) and asked the operator to text themselves. Homelab reproduced the real cause: 'Always Use HTTPS' on phalanxmadrone.com (homelab 850758f, 11-22 17:16) turned HA's POST /chat/new into a body-less GET after the 301, which BlueBubbles answered as chat guid 'new' -> 404 'Chat does not exist'. The remedy is the LAN host for the bluebubbles config entry. Checking it at 02:41 found that it had not held: HA rewrote core.config_entries 32 s after the edit, and a URA send at 02:38 still got the 404.",
+  "why": "The overnight probe read the error text literally and never asked what changed at 17:12; the timing matched an infra commit in a sibling repo. Two lessons: correlate an outage onset with infra changes outside URA before blaming the device, and never trust a .storage edit while Core runs (stop, edit, start, or use the integration's reconfigure flow). The dead-channel alert stays the real gap: 4.5 days silent with no warning.",
+  "alternatives_considered": [
+    "Keep the 'send yourself a text' operator DO (rejected: refuted, the self chat exists and direct sends worked)",
+    "Edit core.config_entries from this session (rejected: Homelab owns the infra change; reported the clobber back instead)"
+  ]
+}
