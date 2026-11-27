@@ -96,13 +96,13 @@ cards:
 - id: NM-IMESSAGE-OUTBOUND-DEAD-1
   title: Every iMessage URA has tried to send since 11-22 17:12 has failed ("Chat does not exist"), and nothing told the operator
   thread: notifications
-  status: waiting_me
+  status: waiting_operator
   created: '2026-11-27 02:02'
-  updated: '2026-11-27 02:41'
+  updated: '2026-11-27 02:47'
   refinement_status: refined
   approval: unreviewed
   tags: [found-during-probe, no-fabrication-verify, live-broken]
-  live_broken: true
+  live_broken: false
   rank: {value: 7, time_criticality: 7, effort: 2}
   problem_solution:
   - 'Problem: since about 5 pm on Saturday 11-22 the iMessage channel has delivered nothing, and nothing told
@@ -130,6 +130,22 @@ cards:
     change. That is the .storage clobber: Core saves its in-memory entries over a file edited while it runs.
     The BlueBubbles main.log has a URA POST /chat/new at 02:38:42 that still got the 404 in 4 ms. Reported
     back to Homelab: stop Core, then edit, then start, or use the integration''s reconfigure flow.'
+  fix_applied_2026_11_27_0244: 'HELD. Homelab deleted the old bluebubbles entry (01KKN7VY…, empty options) at 02:43
+    and re-added it through the config flow with host http://192.168.13.149:1234, as new entry
+    01M8E2SJ9DM5DTSAM37JE3W243 (no file edit). Verified read-only via ssh ha at 02:44: core.config_entries holds
+    that entry with the LAN host. The BlueBubbles log shows /chat/new at 02:43:55 (589 ms) and 02:43:59 (2405 ms)
+    with no API Error. Failed calls took 3-4 ms with a 404, so these succeeded; they are probably Homelab''s
+    test sends. Old-entry references: only HA''s deleted_devices / deleted_entities tombstones (harmless). URA
+    calls the bluebubbles.send_message service by domain (notification_manager.py:2915), not by entry ID, so
+    no URA change is needed.'
+  outage_closed_2026_11_27_0247: 'OUTAGE HALF CLOSED. End to end proven: the operator''s phone received a URA-authored
+    iMessage ("URA / Unknown command. Reply: 1=Ack 2=Status 3=Silence") at about 02:44 CST, sent by URA through
+    bluebubbles.send_message. Every BlueBubbles /chat/new since 02:43 succeeded (no API Error; 589 ms and 2405 ms).
+    The "Unknown command" reply was a test artefact: Homelab''s direct HA->BlueBubbles test came back through the
+    reply webhook, and URA''s echo buffer is seeded only by URA''s own sends, so URA parsed the test as a command.
+    No change: URA already drops isFromMe (notification_manager.py:4339), and per the 08-05 echo-loop note
+    (:611) that flag does not separate echoes in this self-chat setup, so a "from me" filter cannot tell the
+    operator''s replies from tests.'
   origin:
     date: '2026-11-27'
     gist: overnight pass 11-27, found while re-checking the WhatsApp/app diag ask (NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1)
@@ -163,7 +179,7 @@ cards:
   knobs:
   - 'NM_CHANNEL_DEAD_ALERT_H (module constant, proposed): hours a channel may fail every send before NM tells the operator on a working channel. Decide in the plan, not set here.'
   parsimony: {problem: 'Every iMessage send has failed since 11-22 17:12 and the operator was never told.', verdict: BUILD (operator fix first; the dead-channel alert is a small separate Tier-1/2 NM change, not built overnight because the NM path is regression-prone and 3 cards already sit in review)}
-  next: 'Me: once Homelab re-applies the LAN host so it persists (BB-HTTPS-REDIRECT-1), confirm the live core.config_entries host is http://192.168.13.149:1234, then that the next real URA send gets a 200 in ~/Library/Logs/bluebubbles-server/main.log, that the operator receives it, and that imessage channel_status returns to ok. Then close the outage half. The dead-channel alert stays open (4.5 days silent with no warning is the real gap): it needs the operator to APPROVE it before I build it to review.'
+  next: 'APPROVE: the dead-channel alert (when one channel has failed every send for N hours, NM tells you on a channel that still works; 4.5 days of silent iMessage failure is the gap it closes) -> I plan and build it to review (Tier 1-2, NM). The outage itself is fixed and closed.'
   refs:
   - ~/Library/Logs/bluebubbles-server/main.log
   - custom_components/universal_room_automation/domain_coordinators/notification_manager.py

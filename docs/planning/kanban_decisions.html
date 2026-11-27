@@ -264,12 +264,12 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <header class="top">
 <h1>URA://DECISIONS<span class="gen">GENERATED - waiting_operator cards from kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-11-27T02:07:52-06:00</b></span>
-<span>data <b>f02e1b024292</b></span>
+<span>generated <b>2026-11-27T02:42:23-06:00</b></span>
+<span>data <b>b3146fd09638</b></span>
 <span>reconciled <b>2026-11-27</b></span>
 </div></header>
 <section class="decisions" id="decisions" aria-labelledby="decisions-h">
-<h2 id="decisions-h">Decisions <span class="count">42</span><span class="hint">waiting on you, oldest first · tap a PICK or type an answer; it is applied at the next groom</span></h2>
+<h2 id="decisions-h">Decisions <span class="count">43</span><span class="hint">waiting on you, oldest first · tap a PICK or type an answer; it is applied at the next groom</span></h2>
 <article class="decision" data-id="CAMERA-SEAM-VALIDATION-1">
 <div class="dhd">
 <span class="id">CAMERA-SEAM-VALIDATION-1</span>
@@ -738,6 +738,16 @@ section.decisions .none { color:var(--muted); font-size:12px; padding:0 18px 12p
 <button type="button" data-pick="B" title="send: PICK B"><b>PICK B</b>restart first and only watch whether the step recurs. Headroom now:...</button>
 </div>
 <form class="answer"><label for="ans-HA-CORE-MEMORY-GROWTH-1">Your answer for HA-CORE-MEMORY-GROWTH-1</label><textarea id="ans-HA-CORE-MEMORY-GROWTH-1" rows="2" placeholder="Your answer for HA-CORE-MEMORY-GROWTH-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
+<div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
+</article>
+<article class="decision" data-id="NM-IMESSAGE-OUTBOUND-DEAD-1">
+<div class="dhd">
+<span class="id">NM-IMESSAGE-OUTBOUND-DEAD-1</span>
+<span class="since">waiting since 2026-11-27 02:47</span>
+</div>
+<div class="dtitle">Every iMessage URA has tried to send since 11-22 17:12 has failed (&quot;Chat does not exist&quot;), and nothing told the operator</div>
+<p class="ask"><b>APPROVE</b>: the dead-channel alert (when one channel has failed every send for N hours, NM tells you on a channel that still works; 4.5 days of silent iMessage failure is the gap it closes) -&gt; I plan and build it to review (Tier 1-2, NM). The outage itself is fixed and closed.</p>
+<form class="answer"><label for="ans-NM-IMESSAGE-OUTBOUND-DEAD-1">Your answer for NM-IMESSAGE-OUTBOUND-DEAD-1</label><textarea id="ans-NM-IMESSAGE-OUTBOUND-DEAD-1" rows="2" placeholder="Your answer for NM-IMESSAGE-OUTBOUND-DEAD-1 (Cmd/Ctrl+Enter sends)"></textarea><button type="submit">send answer</button></form>
 <div class="dactions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div>
 </article>
 </section>
