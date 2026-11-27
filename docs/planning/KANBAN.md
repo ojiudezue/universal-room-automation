@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-27T02:59:06-06:00_ - _Data commit: `0c16d9e1c0e3`_ - _last_reconciled: 2026-11-27_
+_Generated: 2026-11-27T02:59:17-06:00_ - _Data commit: `2294ab5d3996`_ - _last_reconciled: 2026-11-27_
 
 
 ## Columns
@@ -982,7 +982,7 @@ _created 2026-10-16 02:20 · updated 2026-11-26 02:05 · initial_
 
 ### `NM-IMESSAGE-OUTBOUND-DEAD-1` - Every iMessage URA has tried to send since 11-22 17:12 has failed ("Chat does not exist"), and nothing told the operator — _#6 · WSJF 8.5 · v7 tc8 u2 /e2_
 thread: **notifications** - status: **waiting_operator** - approval: **explicit**
-_created 2026-11-27 02:02 · updated 2026-11-27 02:59 · refined_
+_created 2026-11-27 02:02 · updated 2026-11-27 03:08 · refined_
 - **Problem / Solution:**
   - Problem: since about 5 pm on Saturday 11-22 the iMessage channel has delivered nothing, and nothing told you. HA reached BlueBubbles through the public web address. On 11-22 the homelab turned on Cloudflare "Always Use HTTPS" for that do...
 - **Origin:** 2026-11-27 - overnight pass 11-27, found while re-checking the WhatsApp/app diag ask (NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1)
@@ -991,7 +991,7 @@ _created 2026-11-27 02:02 · updated 2026-11-27 02:59 · refined_
 - **Tags:** found-during-probe, no-fabrication-verify, live-broken
 - **Parsimony:** [BUILD (operator fix first; the dead-channel alert is a small separate Tier-1/2 NM change] Every iMessage send has failed since 11-22 17:12 and the operator was never told.
 - **Refs:** ~/Library/Logs/bluebubbles-server/main.log; custom_components/universal_room_automation/domain_coordinators/notification_manager.py
-- **Forensic keys (10):**
+- **Forensic keys (11):**
   - `correction_2026_11_27_0241`: HYPOTHESIS REFUTED (Homelab session, reproduced 11-27 ~02:30). The overnight guess (self chat deleted / Messages lost its session / Private API state) was WRONG. chat.db ROWID 729 (the self chat) exists, and three direct test sends at 02...
   - `fix_verification_2026_11_27_0241`: NOT YET HELD (read-only via ssh ha, 02:41). Homelab reported the host change as applied, but the live /config/.storage/core.config_entries still has host http://bluebubbles.phalanxmadrone.com, and 192.168.13.149 appears in no core.config...
   - `fix_applied_2026_11_27_0244`: HELD. Homelab deleted the old bluebubbles entry (01KKN7VY…, empty options) at 02:43 and re-added it through the config flow with host http://192.168.13.149:1234, as new entry 01M8E2SJ9DM5DTSAM37JE3W243 (no file edit). Verified read-only ...
@@ -1002,6 +1002,7 @@ _created 2026-11-27 02:02 · updated 2026-11-27 02:59 · refined_
   - `delivery_answer_2026_11_27`: Operator asked how the alert arrives (WhatsApp?). Answer given: on every channel that is still working, through NM's normal routing with the dead channel excluded (in this outage: phone app, Pushover, WhatsApp), at a non-critical severit...
   - `correction_2026_11_27_0255`: WRONG: I told the operator the alert would arrive by phone app, Pushover and WhatsApp. Live Coordinator Manager config (read 02:55): nm_whatsapp/pushover/imessage_severity = CRITICAL, nm_companion_severity = HIGH, quiet hours 22:00-07:00...
   - `plan_review_2026_11_27`: Tier-2 plan review FIX-PLAN: 2 HIGH (fire_stuck_signal day latch at _stuck_signal_nm.py:203 would swallow a second outage the same day -> key per episode; in-flight guard vs self-route recursion), 4 MEDIUM (tracked task, Store-load race,...
+  - `built_2026_11_27`: Built on feature/nm-dead-channel-alert at 5f5d1dc0b (tag pre-review-nm-dead-channel): notification_manager.py +352, quality/tests/test_nm_dead_channel_alert.py (22 tests; builder ran 18 per-site mutation drills, all red). Orchestrator re...
 
 ### `LANDSCAPE-RETRY-POSTFIX-CHECK-1` - Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline — _#7 · WSJF 8.0 · v3 tc3 u2 /e1_
 thread: **lighting** - status: **waiting_operator**
