@@ -1,0 +1,15 @@
+{
+  "format_version": "2.1",
+  "entry_id": "367",
+  "author": "ojiudezue",
+  "timestamp": "2026-11-28T08:04:00Z",
+  "type": "decision",
+  "weight": "light",
+  "title": "Overnight 11-28: perimeter gates disposed at their date (D5 keep, D3 parked); memory pick mooted by restart",
+  "summary": "PERIMETER-FP-GATES-DISPOSE-1 hit its 11-28 dispose-by. One DB cross-tab of 1,312 perimeter_gate_decision rows: the single-source demote (D5) made 15 demotes in 14 days, all g5_bullet, none wrong, so it stays enforcing; the zone-agreement gate (D3) produced zero rows because perimeter_zone_sensors was never set, so it parks with setting that option as its revival trigger. The 8 s settle-wait PICK stays with Oji. HA-CORE-MEMORY-GROWTH-1's PICK A (read logs before restart) became moot when the 11-27 attended deploys restarted Core (3.9 GB free, swap 0.8 GB), so the card was re-baselined with a 12-01 slope check. No builds: review lane at the 3-card WIP cap. HA MCP down, so log-based checks were recorded as gaps, not all-clears.",
+  "why": "Soak Exit: a dispose-by date is binary, not a reason to keep waiting. The card's own rule said D3 parks at no rows, and D5's evidence is small and clean. A pick whose precondition no longer holds must be rewritten, or the operator gets asked an impossible question.",
+  "alternatives_considered": [
+    "Extend D3's window until the zone sensors are set (rejected: unbounded soak; parking with a trigger is the same outcome, made explicit)",
+    "Turn D5 off for low volume (rejected: it is targeted and has made no wrong demotes; volume is controlled by the zone config, not D5)"
+  ]
+}
